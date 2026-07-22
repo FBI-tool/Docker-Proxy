@@ -94,16 +94,6 @@ bash -c "$(curl -fsSL https://ghp.ci/https://raw.githubusercontent.com/dqzboy/Do
 - 首次启动若宿主机还没有配置文件，容器会自动用镜像内置的默认配置初始化一份，无需手动创建。
 - 想恢复默认配置：删掉 `./config/go-proxy/config.yaml` 后重建容器即可重新播种。
 
-
-### 使用教程
-<details>
-<summary><strong>点击查看</strong></summary>
-<div>
-
-[使用教程](https://dqzboy.github.io/docs/pages/install.html#%E2%9C%A8-%E4%BD%BF%E7%94%A8)
-
-</details>
-
 ---
 
 ## 💻 Hubcmd-UI

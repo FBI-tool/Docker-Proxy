@@ -87,16 +87,6 @@ The config file is mounted on the host at the `./config/go-proxy/` directory (in
 - On first start, if the host does not yet have a config file, the container automatically initializes one from the built-in default config — no manual creation needed.
 - To restore the default config: delete `./config/go-proxy/config.yaml` and recreate the container to re-seed it.
 
-
-### Usage tutorial
-<details>
-<summary><strong>Click to view</strong></summary>
-<div>
-
-[Usage tutorial](https://dqzboy.github.io/docs/pages/install.html#%E2%9C%A8-%E4%BD%BF%E7%94%A8)
-
-</details>
-
 ---
 
 ## 💻 Hubcmd-UI
