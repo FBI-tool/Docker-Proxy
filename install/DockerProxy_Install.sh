@@ -173,7 +173,6 @@ function PROXY_SER_MENU() {
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
     echo -e "${GREEN}1)${RESET} ${BOLD}Docker 镜像加速 (代理服务)${RESET}"
     echo -e "${GREEN}2)${RESET} ${BOLD}hubcmd-ui (管理面板)${RESET}"
-    echo -e "${GREEN}10)${RESET} ${BOLD}all (全部)${RESET}"
     echo -e "${GREEN}0)${RESET} ${BOLD}exit${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
 }
@@ -2309,7 +2308,7 @@ CONTAIENR_LOGS() {
     selected_services=()
     PROXY_SER_MENU
 
-    read -e -p "$(INFO "输入序号选择对应服务,${LIGHT_YELLOW}空格分隔${RESET}多个选项. ${LIGHT_CYAN}all选择所有${RESET} > ")"  restart_service
+    read -e -p "$(INFO "输入序号选择对应服务,${LIGHT_YELLOW}空格分隔${RESET}多个选项 > ")"  restart_service
 
     if  [[ "$restart_service" == "0" ]]; then
         WARN "退出查看容器服务日志操作!"
