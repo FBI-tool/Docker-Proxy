@@ -53,6 +53,7 @@
 - [x] **Daily operations management**: Provides full lifecycle management including service start / stop / restart / logs / update / uninstall.
 - [x] **Traffic Monitoring and Alerts**: Provides detailed client-side traffic metrics for server bandwidth throughput and image pull operations, along with threshold-based monitoring and alerting.
 - [x] **Registry Management**: Each registry has independent configuration management, enabling online management of image proxies (registries) and service settings without the need to manually edit configuration files.
+- [x] **IP Access Control**: IP blacklists and whitelists to control who can pull images from this service. Supports both individual IPs and CIDR blocks.
 
 
 ## 📦 Deployment
