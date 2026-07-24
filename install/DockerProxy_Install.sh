@@ -1858,6 +1858,16 @@ function UPDATE_CONFIG() {
     local cfg_changed=0
     local compose_changed=0
     SEPARATOR "更新配置"
+    echo
+    WARN "建议：配置变更请优先在 ${LIGHT_CYAN}Hubcmd-UI 管理后台${RESET} 的 ${LIGHT_GREEN}『代理管理』${RESET} 中进行——后台自带校验与热更新，更安全不易出错。"
+    WARN "通过本脚本直接修改配置文件属于 ${LIGHT_RED}高级应急操作${RESET}，${BOLD}不建议${RESET} 常规使用，请在确实无法访问后台时再继续。"
+    echo
+    read -e -p "$(WARN "是否仍要使用脚本修改配置? ${PROMPT_YES_NO}")" uc_confirm
+    case "$uc_confirm" in
+        y|Y ) INFO "已确认，继续进入脚本配置编辑。" ;;
+        * ) WARN "已取消，返回主菜单。"; return ;;
+    esac
+    echo
     while true; do
         echo -e "  配置文件: ${LIGHT_BLUE}${GO_PROXY_CONFIG}${RESET}"
         echo
