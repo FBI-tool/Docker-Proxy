@@ -3,11 +3,11 @@
     <div class="page-head mon-head">
       <div class="head-badge"><el-icon><Monitor /></el-icon></div>
       <div class="head-text">
-        <h2>监控配置</h2>
-        <p class="muted">容器停止监控与通知（企业微信 / Telegram）</p>
+        <h2>{{ t('monitoring.title') }}</h2>
+        <p class="muted">{{ t('monitoring.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <el-button type="primary" :loading="saving" @click="onSave"><el-icon><Check /></el-icon> 保存配置</el-button>
+        <el-button type="primary" :loading="saving" @click="onSave"><el-icon><Check /></el-icon> {{ t('monitoring.saveConfig') }}</el-button>
       </div>
     </div>
 
@@ -15,13 +15,13 @@
     <div class="status-banner" :class="enabled ? 'on' : 'off'">
       <div class="sb-ico"><el-icon><Bell /></el-icon></div>
       <div class="sb-text">
-        <div class="sb-title">{{ enabled ? '监控运行中' : '监控已暂停' }}</div>
-        <div class="sb-sub">每 {{ form.monitorInterval }} 秒检测一次容器状态，异常时通过「{{ providerName }}」推送通知</div>
+        <div class="sb-title">{{ enabled ? t('monitoring.running') : t('monitoring.paused') }}</div>
+        <div class="sb-sub">{{ t('monitoring.checkIntervalHint', { interval: form.monitorInterval, provider: providerName }) }}</div>
       </div>
       <el-switch
         v-model="enabled"
-        :active-text="'启用'"
-        :inactive-text="'停用'"
+        :active-text="t('common.enabled')"
+        :inactive-text="t('monitoring.disable')"
         inline-prompt
         :loading="toggling"
         @change="onToggle"
@@ -32,10 +32,10 @@
       <!-- 通知设置 -->
       <el-card shadow="never" class="section-card">
         <template #header>
-          <div class="sec-head"><el-icon><Bell /></el-icon><span>通知设置</span></div>
+          <div class="sec-head"><el-icon><Bell /></el-icon><span>{{ t('monitoring.notificationSettings') }}</span></div>
         </template>
 
-        <div class="provider-label">通知方式</div>
+        <div class="provider-label">{{ t('monitoring.notificationMethod') }}</div>
         <div class="provider-cards">
           <div
             class="provider-card"
@@ -47,8 +47,8 @@
             @keyup.enter="form.notificationType = 'wechat'"
           >
             <div class="pc-ico wechat"><el-icon><ChatDotRound /></el-icon></div>
-            <div class="pc-name">企业微信</div>
-            <div class="pc-desc">通过群机器人 Webhook 推送</div>
+            <div class="pc-name">{{ t('monitoring.wechat') }}</div>
+            <div class="pc-desc">{{ t('monitoring.wechatDesc') }}</div>
             <el-icon v-if="form.notificationType === 'wechat'" class="pc-check"><CircleCheck /></el-icon>
           </div>
 
@@ -63,7 +63,7 @@
           >
             <div class="pc-ico telegram"><el-icon><ChatLineRound /></el-icon></div>
             <div class="pc-name">Telegram</div>
-            <div class="pc-desc">通过 Bot 发送私信通知</div>
+            <div class="pc-desc">{{ t('monitoring.telegramDesc') }}</div>
             <el-icon v-if="form.notificationType === 'telegram'" class="pc-check"><CircleCheck /></el-icon>
           </div>
         </div>
@@ -73,16 +73,16 @@
             <el-input v-model="form.webhookUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...">
               <template #prefix><el-icon><Link /></el-icon></template>
             </el-input>
-            <div class="field-hint">在企业微信「群聊 → 添加群机器人」后复制 Webhook 地址</div>
+            <div class="field-hint">{{ t('monitoring.wechatHint') }}</div>
           </el-form-item>
           <template v-else>
             <el-form-item label="Bot Token">
               <el-input v-model="form.telegramToken" placeholder="123456:ABC-DEF1234..." />
-              <div class="field-hint">向 @BotFather 创建机器人后获取 Token</div>
+              <div class="field-hint">{{ t('monitoring.telegramTokenHint') }}</div>
             </el-form-item>
             <el-form-item label="Chat ID">
-              <el-input v-model="form.telegramChatId" placeholder="例如 -1001234567890" />
-              <div class="field-hint">接收通知的会话 ID，可联系 @getidsbot 获取</div>
+              <el-input v-model="form.telegramChatId" :placeholder="t('monitoring.chatIdPlaceholder')" />
+              <div class="field-hint">{{ t('monitoring.telegramChatIdHint') }}</div>
             </el-form-item>
           </template>
         </el-form>
@@ -91,50 +91,50 @@
       <!-- 监控规则 -->
       <el-card shadow="never" class="section-card">
         <template #header>
-          <div class="sec-head"><el-icon><Timer /></el-icon><span>监控规则</span></div>
+          <div class="sec-head"><el-icon><Timer /></el-icon><span>{{ t('monitoring.monitorRules') }}</span></div>
         </template>
         <el-form label-position="top" class="mon-form">
-          <el-form-item label="检测间隔">
+          <el-form-item :label="t('monitoring.checkInterval')">
             <el-input-number v-model="form.monitorInterval" :min="10" :max="3600" :step="10" controls-position="right" />
-            <span class="unit">秒</span>
-            <div class="field-hint">两次检测之间的间隔，建议 30 – 120 秒</div>
+            <span class="unit">{{ t('monitoring.unitSecond') }}</span>
+            <div class="field-hint">{{ t('monitoring.checkIntervalHint2') }}</div>
           </el-form-item>
         </el-form>
 
         <div class="traffic-divider" />
 
-        <div class="traffic-head"><el-icon><DataLine /></el-icon> 网络流量告警</div>
+        <div class="traffic-head"><el-icon><DataLine /></el-icon> {{ t('monitoring.trafficAlertTitle') }}</div>
         <el-form label-position="top" class="mon-form">
           <el-form-item>
-            <el-switch v-model="form.enableTrafficAlert" active-text="启用" inactive-text="停用" inline-prompt />
-            <div class="field-hint">开启后，当服务器带宽或客户端拉取流量达到下方阈值时推送通知</div>
+            <el-switch v-model="form.enableTrafficAlert" :active-text="t('common.enabled')" :inactive-text="t('monitoring.disable')" inline-prompt />
+            <div class="field-hint">{{ t('monitoring.trafficAlertHint') }}</div>
           </el-form-item>
           <div class="traffic-grid" :class="{ disabled: !form.enableTrafficAlert }">
-            <el-form-item label="下载速率阈值" class="traffic-field">
+            <el-form-item :label="t('monitoring.rxThreshold')" class="traffic-field">
               <el-input-number v-model="form.rxRateThreshold" :min="0" :step="10" controls-position="right" />
               <span class="unit">MB/s</span>
-              <div class="field-hint">0 表示不限制</div>
+              <div class="field-hint">{{ t('monitoring.noLimit') }}</div>
             </el-form-item>
-            <el-form-item label="上传速率阈值" class="traffic-field">
+            <el-form-item :label="t('monitoring.txThreshold')" class="traffic-field">
               <el-input-number v-model="form.txRateThreshold" :min="0" :step="10" controls-position="right" />
               <span class="unit">MB/s</span>
-              <div class="field-hint">0 表示不限制</div>
+              <div class="field-hint">{{ t('monitoring.noLimit') }}</div>
             </el-form-item>
-            <el-form-item label="24h 总流量阈值" class="traffic-field">
+            <el-form-item :label="t('monitoring.dailyTotalThreshold')" class="traffic-field">
               <el-input-number v-model="form.dailyTrafficThreshold" :min="0" :step="50" controls-position="right" />
               <span class="unit">GB</span>
-              <div class="field-hint">0 表示不限制</div>
+              <div class="field-hint">{{ t('monitoring.noLimit') }}</div>
             </el-form-item>
-            <el-form-item label="单客户端日流量阈值" class="traffic-field">
+            <el-form-item :label="t('monitoring.singleIpThreshold')" class="traffic-field">
               <el-input-number v-model="form.singleIpDailyThreshold" :min="0" :step="10" controls-position="right" />
               <span class="unit">GB</span>
-              <div class="field-hint">0 表示不限制；按客户端 IP 累计</div>
+              <div class="field-hint">{{ t('monitoring.noLimitIp') }}</div>
             </el-form-item>
           </div>
         </el-form>
 
         <el-button class="test-btn" :loading="testing" @click="onTest">
-          <el-icon><Promotion /></el-icon> 发送测试通知
+          <el-icon><Promotion /></el-icon> {{ t('monitoring.sendTest') }}
         </el-button>
       </el-card>
     </div>
@@ -143,24 +143,24 @@
     <el-card shadow="never" class="section-card stopped">
       <template #header>
         <div class="sec-head">
-          <el-icon><Warning /></el-icon><span>已停止的容器</span>
+          <el-icon><Warning /></el-icon><span>{{ t('monitoring.stoppedContainers') }}</span>
           <span v-if="stopped.length" class="count-badge">{{ stopped.length }}</span>
         </div>
       </template>
-      <el-table :data="stopped" v-loading="loadingStopped" empty-text="暂无已停止的容器" class="admin-table">
-        <el-table-column prop="name" label="容器" min-width="200" />
-        <el-table-column prop="image" label="镜像" min-width="240" />
-        <el-table-column label="状态" width="120">
+      <el-table :data="stopped" v-loading="loadingStopped" :empty-text="t('monitoring.emptyStopped')" class="admin-table">
+        <el-table-column prop="name" :label="t('monitoring.colContainer')" min-width="200" />
+        <el-table-column prop="image" :label="t('monitoring.colImage')" min-width="240" />
+        <el-table-column :label="t('common.status')" width="120">
           <template #default>
             <el-tag type="info" effect="light" round>
-              <el-icon><VideoPlay /></el-icon> 已停止
+              <el-icon><VideoPlay /></el-icon> {{ t('monitoring.colStatusStopped') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120">
+        <el-table-column :label="t('common.actions')" width="120">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="restart(row.id)">
-              <el-icon><VideoPlay /></el-icon> 启动
+              <el-icon><VideoPlay /></el-icon> {{ t('monitoring.start') }}
             </el-button>
           </template>
         </el-table-column>
@@ -172,10 +172,13 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import {
   Check, Monitor, Bell, CircleCheck, ChatDotRound, ChatLineRound, Link, Timer, Promotion, Warning, VideoPlay, DataLine
 } from '@element-plus/icons-vue'
 import { getMonitoringConfig, saveMonitoringConfig, toggleMonitoring, testNotification, getStoppedContainersForMonitor, startContainer } from '../services'
+
+const { t } = useI18n()
 
 const form = ref({
   notificationType: 'wechat', webhookUrl: '', telegramToken: '', telegramChatId: '', monitorInterval: 60,
@@ -189,24 +192,24 @@ const enabled = ref(false)
 const saving = ref(false), toggling = ref(false), testing = ref(false)
 const stopped = ref([]), loadingStopped = ref(false)
 
-const providerName = computed(() => form.value.notificationType === 'wechat' ? '企业微信' : 'Telegram')
+const providerName = computed(() => form.value.notificationType === 'wechat' ? t('monitoring.wechat') : 'Telegram')
 
-// 把后端/网络错误翻译成用户能看懂的中文提示
-function describeError(e, ctx) {
+// 把后端/网络错误翻译成用户能看懂的提示
+function describeError(e, ctxKey) {
   const data = e?.response?.data
   const status = e?.response?.status
   const be = data?.error || data?.message
   if (be) {
-    if (status === 400) return `${ctx}配置有误：${be}`
-    if (status === 401) return '登录状态已失效，请重新登录后再试'
-    if (status === 500) return `${ctx}失败：${be}`
+    if (status === 400) return t('monitoring.errConfigInvalid', { ctx: t(ctxKey), msg: be })
+    if (status === 401) return t('monitoring.errLoginExpired')
+    if (status === 500) return t('monitoring.errFailed', { ctx: t(ctxKey), msg: be })
     return be
   }
   if (e?.message && /is not defined|is not a function/.test(e.message)) {
-    return `${ctx}功能暂时不可用，请刷新页面或联系管理员`
+    return t('monitoring.errUnavailable', { ctx: t(ctxKey) })
   }
-  if (!e?.response) return '网络异常，无法连接到服务器，请检查网络或稍后重试'
-  return `${ctx}失败：${e.message || '未知错误'}`
+  if (!e?.response) return t('monitoring.errNetwork')
+  return t('monitoring.errFailed', { ctx: t(ctxKey), msg: e.message || t('monitoring.unknownError') })
 }
 
 async function load() {
@@ -214,7 +217,7 @@ async function load() {
     const c = await getMonitoringConfig()
     form.value = { ...form.value, ...c }
     enabled.value = !!c.isEnabled
-  } catch (e) { ElMessage.warning(describeError(e, '读取监控配置')) }
+  } catch (e) { ElMessage.warning(describeError(e, 'monitoring.readConfig')) }
   loadStopped()
 }
 async function loadStopped() {
@@ -224,14 +227,14 @@ async function loadStopped() {
 }
 async function onSave() {
   saving.value = true
-  try { await saveMonitoringConfig({ ...form.value, isEnabled: enabled.value }); ElMessage.success('配置已保存') }
-  catch (e) { ElMessage.error(describeError(e, '保存配置')) }
+  try { await saveMonitoringConfig({ ...form.value, isEnabled: enabled.value }); ElMessage.success(t('monitoring.configSaved')) }
+  catch (e) { ElMessage.error(describeError(e, 'monitoring.saveConfig')) }
   finally { saving.value = false }
 }
 async function onToggle(val) {
   toggling.value = true
-  try { await toggleMonitoring(val); ElMessage.success(val ? '监控已启用' : '监控已禁用') }
-  catch (e) { ElMessage.error(describeError(e, '切换监控')); enabled.value = !val }
+  try { await toggleMonitoring(val); ElMessage.success(val ? t('monitoring.monitorEnabled') : t('monitoring.monitorDisabled')) }
+  catch (e) { ElMessage.error(describeError(e, 'monitoring.toggleMonitor')); enabled.value = !val }
   finally { toggling.value = false }
 }
 async function onTest() {
@@ -239,14 +242,14 @@ async function onTest() {
   testing.value = true
   try {
     await testNotification(form.value)
-    ElMessage.success(`测试通知已发送，请前往「${providerName.value}」查收`)
+    ElMessage.success(t('monitoring.testSent', { provider: providerName.value }))
   }
-  catch (e) { ElMessage.error(describeError(e, '发送测试通知')) }
+  catch (e) { ElMessage.error(describeError(e, 'monitoring.sendTest')) }
   finally { testing.value = false }
 }
 async function restart(id) {
-  try { await startContainer(id); ElMessage.success('已启动容器'); loadStopped() }
-  catch (e) { ElMessage.error(describeError(e, '启动容器')) }
+  try { await startContainer(id); ElMessage.success(t('monitoring.containerStarted')); loadStopped() }
+  catch (e) { ElMessage.error(describeError(e, 'monitoring.startContainer')) }
 }
 onMounted(load)
 </script>

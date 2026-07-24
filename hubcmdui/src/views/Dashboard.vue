@@ -2,25 +2,25 @@
   <div class="dashboard">
     <div class="dash-head">
       <div>
-        <h2 class="dash-title">系统看板</h2>
-        <p class="dash-sub">实时监控服务器资源与容器运行状态</p>
+        <h2 class="dash-title">{{ t('dashboard.title') }}</h2>
+        <p class="dash-sub">{{ t('dashboard.subtitle') }}</p>
       </div>
       <div class="dash-actions">
         <span class="live-dot"><i></i>{{ liveText }}</span>
-        <el-button size="small" :icon="Refresh" :loading="loading" @click="refresh">刷新</el-button>
+        <el-button size="small" :icon="Refresh" :loading="loading" @click="refresh">{{ t('common.refresh') }}</el-button>
       </div>
     </div>
 
     <div class="dash-grid">
       <!-- KPI：CPU / 内存 / 磁盘 -->
       <div class="dash-card cell-kpi">
-        <RingStat :value="cpuVal" label="CPU 负载" :sub="cpuSub" :accent="colors.cpu" :accent2="colors.cpu2" :icon="Cpu" />
+        <RingStat :value="cpuVal" :label="'CPU ' + t('dashboard.load')" :sub="cpuSub" :accent="colors.cpu" :accent2="colors.cpu2" :icon="Cpu" />
       </div>
       <div class="dash-card cell-kpi">
-        <RingStat :value="memVal" :center-value="memCenter" unit="GB" label="内存使用" :sub="memSub" :accent="colors.mem" :accent2="colors.mem2" :icon="Monitor" />
+        <RingStat :value="memVal" :center-value="memCenter" unit="GB" :label="t('dashboard.memUsage')" :sub="memSub" :accent="colors.mem" :accent2="colors.mem2" :icon="Monitor" />
       </div>
       <div class="dash-card cell-kpi">
-        <RingStat :value="diskVal" :center-value="diskCenter" unit="GB" label="磁盘使用" :sub="diskSub" :accent="colors.disk" :accent2="colors.disk2" :icon="Files" />
+        <RingStat :value="diskVal" :center-value="diskCenter" unit="GB" :label="t('dashboard.diskUsage')" :sub="diskSub" :accent="colors.disk" :accent2="colors.disk2" :icon="Files" />
       </div>
 
       <!-- Docker 状态 -->
@@ -28,29 +28,29 @@
         <div class="docker-top">
           <div class="docker-ic"><el-icon><Box /></el-icon></div>
           <div class="docker-id">
-            <div class="docker-title">Docker 服务</div>
+            <div class="docker-title">Docker {{ t('dashboard.service') }}</div>
             <div class="docker-state" :style="{ color: dockerRunning ? pal.success : pal.danger }">
-              <span class="state-dot"></span>{{ dockerRunning ? '运行中' : '不可用' }}
+              <span class="state-dot"></span>{{ dockerRunning ? t('dashboard.running') : t('dashboard.unavailable') }}
             </div>
           </div>
         </div>
         <div class="docker-grid">
           <div class="dg">
             <div class="dg-num" :style="{ color: pal.success }">{{ runningCount }}</div>
-            <div class="dg-lab">运行中</div>
+            <div class="dg-lab">{{ t('dashboard.running') }}</div>
           </div>
           <div class="dg">
             <div class="dg-num">{{ containers.length }}</div>
-            <div class="dg-lab">容器总数</div>
+            <div class="dg-lab">{{ t('dashboard.containerTotal') }}</div>
           </div>
         </div>
-        <div class="docker-foot">主机 {{ hostName }} · 已运行 {{ upTime }}</div>
+        <div class="docker-foot">{{ t('dashboard.hostInfo', { host: hostName, uptime: upTime }) }}</div>
       </div>
 
       <!-- 资源趋势 -->
       <div class="dash-card cell-trend">
         <div class="card-head">
-          <span class="card-title"><el-icon><DataLine /></el-icon> 资源使用趋势</span>
+          <span class="card-title"><el-icon><DataLine /></el-icon> {{ t('dashboard.trendTitle') }}</span>
           <span class="card-hint">{{ trendHint }}</span>
         </div>
         <EChart :option="trendOption" height="280px" />
@@ -59,7 +59,7 @@
       <!-- 容器状态分布 -->
       <div class="dash-card cell-donut">
         <div class="card-head">
-          <span class="card-title"><el-icon><PieChart /></el-icon> 容器状态分布</span>
+          <span class="card-title"><el-icon><PieChart /></el-icon> {{ t('dashboard.containerDist') }}</span>
         </div>
         <EChart :option="donutOption" height="280px" />
       </div>
@@ -67,18 +67,18 @@
       <!-- 网络流量 -->
       <div class="dash-card cell-net">
         <div class="card-head">
-          <span class="card-title"><el-icon><Connection /></el-icon> 网络流量</span>
-          <span class="card-hint">实时收发</span>
+          <span class="card-title"><el-icon><Connection /></el-icon> {{ t('dashboard.netTraffic') }}</span>
+          <span class="card-hint">{{ t('dashboard.netRealtime') }}</span>
         </div>
         <div class="net-body">
           <div class="net-row">
             <span class="net-ic down">↓</span>
-            <span class="net-lab">下行</span>
+            <span class="net-lab">{{ t('dashboard.netDown') }}</span>
             <span class="net-val">{{ netRxDisplay.value }} <i class="net-unit">{{ netRxDisplay.unit }}</i></span>
           </div>
           <div class="net-row">
             <span class="net-ic up">↑</span>
-            <span class="net-lab">上行</span>
+            <span class="net-lab">{{ t('dashboard.netUp') }}</span>
             <span class="net-val">{{ netTxDisplay.value }} <i class="net-unit">{{ netTxDisplay.unit }}</i></span>
           </div>
         </div>
@@ -87,22 +87,22 @@
       <!-- 容器列表 -->
       <div class="dash-card cell-list">
         <div class="card-head">
-          <span class="card-title"><el-icon><List /></el-icon> 容器概览（共 {{ containers.length }} 个）</span>
-          <el-button size="small" :icon="Refresh" :loading="loading" @click="refresh">刷新</el-button>
+          <span class="card-title"><el-icon><List /></el-icon> {{ t('dashboard.containerOverview', { count: containers.length }) }}</span>
+          <el-button size="small" :icon="Refresh" :loading="loading" @click="refresh">{{ t('common.refresh') }}</el-button>
         </div>
         <el-table v-if="dockerRunning && containers.length" :data="containers" size="small" style="width: 100%">
-          <el-table-column label="名称" prop="name" min-width="150" show-overflow-tooltip />
-          <el-table-column label="镜像" prop="image" min-width="240" show-overflow-tooltip />
-          <el-table-column label="状态" min-width="100">
+          <el-table-column :label="t('common.name')" prop="name" min-width="150" show-overflow-tooltip />
+          <el-table-column :label="t('dashboard.colImage')" prop="image" min-width="240" show-overflow-tooltip />
+          <el-table-column :label="t('common.status')" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusType(row.state)" size="small" effect="dark">{{ row.state }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="CPU" prop="cpu" min-width="90" />
-          <el-table-column label="内存" prop="memory" min-width="100" />
-          <el-table-column label="创建时间" prop="created" min-width="170" show-overflow-tooltip />
+          <el-table-column :label="t('dashboard.colMemory')" prop="memory" min-width="100" />
+          <el-table-column :label="t('dashboard.colCreated')" prop="created" min-width="170" show-overflow-tooltip />
         </el-table>
-        <el-empty v-else :description="dockerRunning ? '暂无容器' : 'Docker 服务未运行'" />
+        <el-empty v-else :description="dockerRunning ? t('dashboard.noContainer') : t('dashboard.dockerNotRunning')" />
       </div>
     </div>
   </div>
@@ -110,6 +110,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Box, Monitor, Cpu, Files, Refresh, DataLine, PieChart, List, Connection } from '@element-plus/icons-vue'
 import RingStat from '../components/RingStat.vue'
@@ -121,6 +122,7 @@ import { getSystemResources, getDockerStatus, getMetricsHistory } from '../servi
 defineOptions({ name: 'Dashboard' })
 
 const { palette: pal } = useThemeColors()
+const { t } = useI18n()
 
 // ---------- 数据 ----------
 const cpuVal = ref(0)
@@ -244,7 +246,7 @@ function norm(list) {
     id: c.id || c.Id,
     name: c.name || (Array.isArray(c.Names) ? c.Names[0] : (c.Name || '-')).replace(/^\//, ''),
     image: c.image || c.Image || '-',
-    state: c.state || c.State || c.status || '未知',
+    state: c.state || c.State || c.status || t('dashboard.unknown'),
     cpu: c.cpu || 'N/A',
     memory: c.memory || 'N/A',
     created: c.created || '-'
@@ -277,7 +279,7 @@ async function refresh() {
         ?? (cpu.loadAvg && cpu.cores ? Math.round(cpu.loadAvg[0] / cpu.cores * 100) : null)
         ?? 0
       cpuVal.value = cpuPct
-      cpuSub.value = `${cpu.cores || '?'} 核 · 1m ${cpu.loadAvg ? cpu.loadAvg[0].toFixed(2) : (cpu.load1 ?? '—')}${cpu.temp != null ? ' · ' + cpu.temp + '°C' : ''}`
+      cpuSub.value = `${cpu.cores || '?'} ${t('dashboard.core')} · 1m ${cpu.loadAvg ? cpu.loadAvg[0].toFixed(2) : (cpu.load1 ?? '—')}${cpu.temp != null ? ' · ' + cpu.temp + '°C' : ''}`
 
       // 内存：环形百分比用 percent，中心显示已用 GB
       memVal.value = parsePercent(mem.usedPercentage ?? mem.percent) || 0
@@ -302,7 +304,7 @@ async function refresh() {
       upTime.value = formatUptime(typeof r.uptime === 'number' ? r.uptime : (sys.uptime || 0))
       pushHistory(cpuVal.value, memVal.value, diskVal.value)
     })().catch(e => {
-      ElMessage.error('获取系统资源失败：' + (e.response?.data?.error || e.message))
+      ElMessage.error(t('dashboard.fetchSysFailed') + (e.response?.data?.error || e.message))
     }),
     (async () => {
       const d = await getDockerStatus()
@@ -328,13 +330,13 @@ const colors = {
 // ---------- 趋势图 ----------
 const trendHint = computed(() => {
   const h = history.value
-  if (!h.length) return '暂无数据'
+  if (!h.length) return t('dashboard.noData')
   const spanMs = h[h.length - 1].ts - h[0].ts
   const spanText = spanMs >= 3600000
-    ? (spanMs / 3600000).toFixed(1) + ' 小时'
-    : Math.max(1, Math.round(spanMs / 60000)) + ' 分钟'
-  const src = historySource.value === 'server' ? '服务端同步' : '本地缓存'
-  return `${src} ${spanText} · 实时 5 秒`
+    ? (spanMs / 3600000).toFixed(1) + ' ' + t('dashboard.hour')
+    : Math.max(1, Math.round(spanMs / 60000)) + ' ' + t('dashboard.minute')
+  const src = historySource.value === 'server' ? t('dashboard.srcServer') : t('dashboard.srcLocal')
+  return `${src} ${spanText} · ${t('dashboard.realtime5s')}`
 })
 
 const trendOption = computed(() => {
@@ -366,7 +368,7 @@ const trendOption = computed(() => {
       valueFormatter: v => (v == null ? '—' : v + '%')
     },
     legend: {
-      data: ['CPU', '内存', '磁盘'], top: 4, right: 8,
+      data: ['CPU', t('dashboard.colMemory'), t('dashboard.legendDisk')], top: 4, right: 8,
       textStyle: { color: p['--fg-2'] || '#334155' },
       itemWidth: 14, itemHeight: 8, icon: 'roundRect'
     },
@@ -384,8 +386,8 @@ const trendOption = computed(() => {
     },
     series: [
       mk('CPU', history.value.map(p => [p.ts, p.cpu]), colors.cpu),
-      mk('内存', history.value.map(p => [p.ts, p.mem]), colors.mem),
-      mk('磁盘', history.value.map(p => [p.ts, p.disk]), colors.disk)
+      mk(t('dashboard.colMemory'), history.value.map(p => [p.ts, p.mem]), colors.mem),
+      mk(t('dashboard.legendDisk'), history.value.map(p => [p.ts, p.disk]), colors.disk)
     ]
   }
 })
@@ -394,10 +396,10 @@ const trendOption = computed(() => {
 const donutOption = computed(() => {
   const p = pal.value
   const buckets = [
-    { name: '运行中', color: p['--success'] || '#16a34a', n: 0 },
-    { name: '已暂停', color: p['--warning'] || '#d97706', n: 0 },
-    { name: '已停止', color: p['--danger'] || '#dc2626', n: 0 },
-    { name: '其他', color: p['--muted-2'] || '#94a3b8', n: 0 }
+    { name: t('dashboard.running'), color: p['--success'] || '#16a34a', n: 0 },
+    { name: t('dashboard.paused'), color: p['--warning'] || '#d97706', n: 0 },
+    { name: t('dashboard.stopped'), color: p['--danger'] || '#dc2626', n: 0 },
+    { name: t('dashboard.other'), color: p['--muted-2'] || '#94a3b8', n: 0 }
   ]
   containers.value.forEach(c => {
     const s = (c.state || '').toLowerCase()
@@ -426,7 +428,7 @@ const donutOption = computed(() => {
       itemStyle: { borderRadius: 6, borderColor: p['--bg-card'] || '#fff', borderWidth: 2 },
       label: {
         show: true, position: 'center',
-        formatter: () => `{a|${containers.value.length}}\n{b|容器总数}`,
+        formatter: () => `{a|${containers.value.length}}\n{b|${t('dashboard.containerTotal')}}`,
         rich: {
           a: { fontSize: 30, fontWeight: 700, color: p['--fg'] || '#0f172a' },
           b: { fontSize: 12, color: p['--muted'] || '#64748b', padding: [4, 0, 0, 0] }
@@ -439,7 +441,7 @@ const donutOption = computed(() => {
 })
 
 // ---------- 自动刷新 ----------
-const liveText = ref('实时')
+const liveText = computed(() => t('dashboard.live'))
 let timer = null
 function startTimer() {
   if (timer) clearInterval(timer)
@@ -486,10 +488,10 @@ function formatUptime(seconds) {
   const minutes = Math.floor((s % 3600) / 60)
   const secs = Math.floor(s % 60)
   const parts = []
-  if (days > 0) parts.push(`${days}天`)
-  if (hours > 0 || days > 0) parts.push(`${hours}小时`)
-  if (minutes > 0 || hours > 0 || days > 0) parts.push(`${minutes}分钟`)
-  if (parts.length === 0) parts.push(`${secs}秒`)
+  if (days > 0) parts.push(`${days}${t('dashboard.day')}`)
+  if (hours > 0 || days > 0) parts.push(`${hours}${t('dashboard.hour')}`)
+  if (minutes > 0 || hours > 0 || days > 0) parts.push(`${minutes}${t('dashboard.minute')}`)
+  if (parts.length === 0) parts.push(`${secs}${t('dashboard.second')}`)
   return parts.join(' ')
 }
 </script>

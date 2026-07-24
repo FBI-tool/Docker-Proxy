@@ -3,14 +3,14 @@
     <header class="page-head">
       <div class="head-badge"><el-icon><DataLine /></el-icon></div>
       <div class="head-text">
-        <h1>流量监控</h1>
-        <p>服务器带宽吞吐与「通过本服务拉取镜像」的客户端流量明细</p>
+        <h1>{{ t('traffic.title') }}</h1>
+        <p>{{ t('traffic.subtitle') }}</p>
       </div>
       <div class="head-actions">
         <el-select v-model="hours" size="default" style="width: 130px" @change="loadTraffic">
           <el-option v-for="o in rangeOpts" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
-        <el-button :icon="Refresh" :loading="loading" @click="refreshAll">刷新</el-button>
+        <el-button :icon="Refresh" :loading="loading" @click="refreshAll">{{ t('common.refresh') }}</el-button>
       </div>
     </header>
 
@@ -20,27 +20,27 @@
         <div class="rate-ic"><el-icon><Download /></el-icon></div>
         <div class="rate-body">
           <div class="rate-main">
-            <div class="rate-label">当前下载速率</div>
+            <div class="rate-label">{{ t('traffic.curDownloadRate') }}</div>
             <div class="rate-val">{{ formatRate(current.rxSec) }}</div>
           </div>
-          <div class="rate-sub">本次启动累计 {{ formatBytes(current.rxBytes) }}</div>
+          <div class="rate-sub">{{ t('traffic.sinceBootAccum', { bytes: formatBytes(current.rxBytes) }) }}</div>
         </div>
       </div>
       <div class="rate-card up">
         <div class="rate-ic"><el-icon><Upload /></el-icon></div>
         <div class="rate-body">
           <div class="rate-main">
-            <div class="rate-label">当前上传速率</div>
+            <div class="rate-label">{{ t('traffic.curUploadRate') }}</div>
             <div class="rate-val">{{ formatRate(current.txSec) }}</div>
           </div>
-          <div class="rate-sub">本次启动累计 {{ formatBytes(current.txBytes) }}</div>
+          <div class="rate-sub">{{ t('traffic.sinceBootAccum', { bytes: formatBytes(current.txBytes) }) }}</div>
         </div>
       </div>
       <div class="rate-card info">
         <div class="rate-ic"><el-icon><Connection /></el-icon></div>
         <div class="rate-body">
           <div class="rate-main">
-            <div class="rate-label">窗口内总流量</div>
+            <div class="rate-label">{{ t('traffic.windowTotal') }}</div>
             <div class="rate-val sm">{{ formatBytes(window.rxTotal + window.txTotal) }}</div>
           </div>
           <div class="rate-sub">↓ {{ formatBytes(window.rxTotal) }} · ↑ {{ formatBytes(window.txTotal) }}</div>
@@ -50,7 +50,7 @@
         <div class="rate-ic"><el-icon><Cpu /></el-icon></div>
         <div class="rate-body">
           <div class="rate-main">
-            <div class="rate-label">活跃网卡</div>
+            <div class="rate-label">{{ t('traffic.activeIfaces') }}</div>
             <div class="rate-val sm">{{ activeIfaces.length }}</div>
           </div>
           <div class="rate-sub iface-list" :title="activeIfaces.join(', ')">
@@ -63,8 +63,8 @@
     <!-- 历史吞吐曲线 -->
     <el-card shadow="never" class="panel-card">
       <div class="card-head">
-        <span class="card-title"><el-icon><DataLine /></el-icon> 历史吞吐曲线</span>
-        <span class="card-hint">每 30s 采样 · 聚合全部非回环网卡</span>
+        <span class="card-title"><el-icon><DataLine /></el-icon> {{ t('traffic.historyCurve') }}</span>
+        <span class="card-hint">{{ t('traffic.sampleHint', { sec: 30 }) }}</span>
       </div>
       <EChart :option="chartOption" height="340px" />
     </el-card>
@@ -72,21 +72,21 @@
     <!-- 客户端拉取流量 Top -->
     <el-card shadow="never" class="panel-card">
       <div class="card-head">
-        <span class="card-title"><el-icon><User /></el-icon> 客户端拉取流量排行</span>
+        <span class="card-title"><el-icon><User /></el-icon> {{ t('traffic.clientRank') }}</span>
         <div class="head-actions">
           <span v-if="proxyReachable === false" class="warn-tag">
-            <el-icon><WarningFilled /></el-icon> 无法连接代理服务（go-proxy）
+            <el-icon><WarningFilled /></el-icon> {{ t('traffic.proxyUnreachableWarn') }}
           </span>
-          <el-button size="small" :icon="Refresh" :loading="clientsLoading" @click="loadClients">刷新</el-button>
+          <el-button size="small" :icon="Refresh" :loading="clientsLoading" @click="loadClients">{{ t('common.refresh') }}</el-button>
         </div>
       </div>
       <div v-if="clients.length" class="client-table">
         <div class="ct-head">
-          <span class="ct-ip">客户端 IP</span>
-          <span class="ct-bytes">总流量</span>
-          <span class="ct-req">请求数</span>
-          <span class="ct-time">最近活跃</span>
-          <span class="ct-regs">镜像源明细</span>
+          <span class="ct-ip">{{ t('traffic.clientIp') }}</span>
+          <span class="ct-bytes">{{ t('traffic.totalTraffic') }}</span>
+          <span class="ct-req">{{ t('traffic.requests') }}</span>
+          <span class="ct-time">{{ t('traffic.lastActive') }}</span>
+          <span class="ct-regs">{{ t('traffic.registryDetail') }}</span>
         </div>
         <div v-for="c in clients" :key="c.ip" class="ct-row">
           <span class="ct-ip"><el-icon><Monitor /></el-icon> {{ c.ip }}</span>
@@ -101,7 +101,7 @@
       </div>
       <div v-else class="client-empty">
         <el-icon><DocumentDelete /></el-icon>
-        <span>{{ proxyReachable === false ? '代理服务不可达，请在「代理管理」确认 go-proxy 状态' : '暂无拉取流量记录（重启后会清零，有客户端拉取镜像后自动出现）' }}</span>
+        <span>{{ proxyReachable === false ? t('traffic.proxyUnreachableMsg') : t('traffic.noTrafficRecord') }}</span>
       </div>
     </el-card>
   </div>
@@ -114,18 +114,20 @@ import { DataLine, Download, Upload, Refresh, Connection, Cpu, User, Monitor, Wa
 import EChart from '../components/EChart.vue'
 import { useThemeColors } from '../composables/useThemeColors'
 import { getNetworkTraffic, getProxyStats } from '../services'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const { palette: pal } = useThemeColors()
 
 const loading = ref(false)
 const clientsLoading = ref(false)
 const hours = ref(24)
 const rangeOpts = [
-  { label: '近 6 小时', value: 6 },
-  { label: '近 12 小时', value: 12 },
-  { label: '近 24 小时', value: 24 },
-  { label: '近 3 天', value: 72 },
-  { label: '近 7 天', value: 168 }
+  { label: t('traffic.rangeHours', { n: 6 }), value: 6 },
+  { label: t('traffic.rangeHours', { n: 12 }), value: 12 },
+  { label: t('traffic.rangeHours', { n: 24 }), value: 24 },
+  { label: t('traffic.rangeDays', { n: 3 }), value: 72 },
+  { label: t('traffic.rangeDays', { n: 7 }), value: 168 }
 ]
 
 const current = ref({ rxSec: 0, txSec: 0, rxBytes: 0, txBytes: 0, interfaces: [], activeInterfaces: [] })
@@ -139,7 +141,7 @@ const ifaceSummary = computed(() => {
   const list = activeIfaces.value
   if (!list.length) return '—'
   const head = list.slice(0, 3).join(', ')
-  return list.length > 3 ? `${head} 等 ${list.length} 个` : head
+  return list.length > 3 ? `${head} ${t('traffic.ifaceEtc', { count: list.length })}` : head
 })
 
 function formatBytes(bytes) {
@@ -191,7 +193,7 @@ const chartOption = computed(() => {
     }
   })
   return {
-    grid: { left: 62, right: 22, top: 44, bottom: 32 },
+    grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
     tooltip: {
       trigger: 'axis',
       backgroundColor: p['--bg-card'] || '#fff',
@@ -199,7 +201,7 @@ const chartOption = computed(() => {
       textStyle: { color: p['--fg'] || '#0f172a' },
       valueFormatter: v => (v == null ? '—' : formatBytes(v) + '/s')
     },
-    legend: { data: ['下载', '上传'], top: 6, right: 8, textStyle: { color: p['--fg-2'] || '#334155' } },
+    legend: { data: [t('traffic.download'), t('traffic.upload')], top: 6, right: 8, textStyle: { color: p['--fg-2'] || '#334155' } },
     xAxis: {
       type: 'time',
       axisLine: { lineStyle: { color: split } },
@@ -214,7 +216,7 @@ const chartOption = computed(() => {
       axisLabel: { color: axis, formatter: v => formatBytes(v) + '/s' },
       splitLine: { lineStyle: { color: split, type: 'dashed' } }
     },
-    series: [mk('下载', 'rxRate', rxColor), mk('上传', 'txRate', txColor)]
+    series: [mk(t('traffic.download'), 'rxRate', rxColor), mk(t('traffic.upload'), 'txRate', txColor)]
   }
 })
 
@@ -226,7 +228,7 @@ async function loadTraffic() {
     window.value = d.history?.window || window.value
     points.value = d.history?.points || []
   } catch (e) {
-    ElMessage.error('获取流量数据失败：' + (e.response?.data?.error || e.message))
+    ElMessage.error(t('traffic.loadFailed') + (e.response?.data?.error || e.message))
   } finally {
     loading.value = false
   }

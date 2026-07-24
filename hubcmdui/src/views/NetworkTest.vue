@@ -5,8 +5,8 @@
         <el-icon><Connection /></el-icon>
       </div>
       <div class="head-text">
-        <h2>网络诊断</h2>
-        <p class="muted">Ping · Traceroute · HTTP · DNS · TCP 与下载测速，一站式网络连通性检测</p>
+        <h2>{{ t('network.title') }}</h2>
+        <p class="muted">{{ t('network.subtitle') }}</p>
       </div>
     </div>
 
@@ -18,16 +18,16 @@
             <template #label><span class="tab-label"><el-icon><Aim /></el-icon> Ping</span></template>
             <div class="console-wrap">
               <div class="nt-form console-bar">
-                <el-input v-model="forms.ping.target" placeholder="例如 google.com 或 8.8.8.8" clearable class="grow" @keyup.enter="run('ping')">
+                <el-input v-model="forms.ping.target" :placeholder="t('network.pingPlaceholder')" clearable class="grow" @keyup.enter="run('ping')">
                   <template #prefix><el-icon><Position /></el-icon></template>
                 </el-input>
                 <el-button type="primary" :loading="running.ping" @click="run('ping')">
-                  <el-icon><Promotion /></el-icon> 开始测试
+                  <el-icon><Promotion /></el-icon> {{ t('network.startTest') }}
                 </el-button>
               </div>
             </div>
             <PingResult v-if="results.ping" :data="results.ping" />
-            <div v-else class="empty-hint"><el-icon><DataLine /></el-icon><span>输入目标后点击「开始测试」查看实时延迟走势</span></div>
+            <div v-else class="empty-hint"><el-icon><DataLine /></el-icon><span>{{ t('network.pingEmptyHint') }}</span></div>
           </el-tab-pane>
 
           <!-- Traceroute -->
@@ -35,16 +35,16 @@
             <template #label><span class="tab-label"><el-icon><Share /></el-icon> Traceroute</span></template>
             <div class="console-wrap">
               <div class="nt-form console-bar">
-                <el-input v-model="forms.traceroute.target" placeholder="例如 ghcr.io" clearable class="grow" @keyup.enter="run('traceroute')">
+                <el-input v-model="forms.traceroute.target" :placeholder="t('network.traceroutePlaceholder')" clearable class="grow" @keyup.enter="run('traceroute')">
                   <template #prefix><el-icon><Position /></el-icon></template>
                 </el-input>
                 <el-button type="primary" :loading="running.traceroute" @click="run('traceroute')">
-                  <el-icon><Promotion /></el-icon> 开始测试
+                  <el-icon><Promotion /></el-icon> {{ t('network.startTest') }}
                 </el-button>
               </div>
             </div>
             <TracerouteResult v-if="results.traceroute" :data="results.traceroute" />
-            <div v-else class="empty-hint"><el-icon><Share /></el-icon><span>追踪数据包从本机到目标所经过的每一跳节点</span></div>
+            <div v-else class="empty-hint"><el-icon><Share /></el-icon><span>{{ t('network.tracerouteEmptyHint') }}</span></div>
           </el-tab-pane>
 
           <!-- HTTP -->
@@ -52,16 +52,16 @@
             <template #label><span class="tab-label"><el-icon><Link /></el-icon> HTTP</span></template>
             <div class="console-wrap">
               <div class="nt-form console-bar">
-                <el-input v-model="forms.http.target" placeholder="例如 https://docker.io 或 docker.io" clearable class="grow" @keyup.enter="run('http')">
+                <el-input v-model="forms.http.target" :placeholder="t('network.httpPlaceholder')" clearable class="grow" @keyup.enter="run('http')">
                   <template #prefix><el-icon><Link /></el-icon></template>
                 </el-input>
                 <el-button type="primary" :loading="running.http" @click="run('http')">
-                  <el-icon><Promotion /></el-icon> 开始测试
+                  <el-icon><Promotion /></el-icon> {{ t('network.startTest') }}
                 </el-button>
               </div>
             </div>
             <HttpResult v-if="results.http" :data="results.http" />
-            <div v-else class="empty-hint"><el-icon><Link /></el-icon><span>检测目标站点的可达性与响应耗时</span></div>
+            <div v-else class="empty-hint"><el-icon><Link /></el-icon><span>{{ t('network.httpEmptyHint') }}</span></div>
           </el-tab-pane>
 
           <!-- DNS -->
@@ -69,16 +69,16 @@
             <template #label><span class="tab-label"><el-icon><Coordinate /></el-icon> DNS</span></template>
             <div class="console-wrap">
               <div class="nt-form console-bar">
-                <el-input v-model="forms.dns.target" placeholder="例如 registry-1.docker.io" clearable class="grow" @keyup.enter="run('dns')">
+                <el-input v-model="forms.dns.target" :placeholder="t('network.dnsPlaceholder')" clearable class="grow" @keyup.enter="run('dns')">
                   <template #prefix><el-icon><Position /></el-icon></template>
                 </el-input>
                 <el-button type="primary" :loading="running.dns" @click="run('dns')">
-                  <el-icon><Promotion /></el-icon> 开始解析
+                  <el-icon><Promotion /></el-icon> {{ t('network.startResolve') }}
                 </el-button>
               </div>
             </div>
             <DnsResult v-if="results.dns" :data="results.dns" />
-            <div v-else class="empty-hint"><el-icon><Coordinate /></el-icon><span>查询域名解析到的 IP 记录</span></div>
+            <div v-else class="empty-hint"><el-icon><Coordinate /></el-icon><span>{{ t('network.dnsEmptyHint') }}</span></div>
           </el-tab-pane>
 
           <!-- TCP -->
@@ -86,34 +86,34 @@
             <template #label><span class="tab-label"><el-icon><Switch /></el-icon> TCP</span></template>
             <div class="console-wrap">
               <div class="nt-form console-bar">
-                <el-input v-model="forms.tcp.target" placeholder="例如 ghcr.io" clearable class="grow" @keyup.enter="run('tcp')">
+                <el-input v-model="forms.tcp.target" :placeholder="t('network.tcpPlaceholder')" clearable class="grow" @keyup.enter="run('tcp')">
                   <template #prefix><el-icon><Position /></el-icon></template>
                 </el-input>
-                <el-input-number v-model="forms.tcp.port" :min="1" :max="65535" controls-position="right" placeholder="端口" class="port" />
+                <el-input-number v-model="forms.tcp.port" :min="1" :max="65535" controls-position="right" :placeholder="t('network.portPlaceholder')" class="port" />
                 <el-button type="primary" :loading="running.tcp" @click="run('tcp')">
-                  <el-icon><Promotion /></el-icon> 测试连通
+                  <el-icon><Promotion /></el-icon> {{ t('network.testConnectivity') }}
                 </el-button>
               </div>
             </div>
             <TcpResult v-if="results.tcp" :data="results.tcp" />
-            <div v-else class="empty-hint"><el-icon><Switch /></el-icon><span>检测指定主机与端口的 TCP 连通性</span></div>
+            <div v-else class="empty-hint"><el-icon><Switch /></el-icon><span>{{ t('network.tcpEmptyHint') }}</span></div>
           </el-tab-pane>
 
           <!-- Speed -->
           <el-tab-pane name="speed">
-            <template #label><span class="tab-label"><el-icon><Odometer /></el-icon> 测速</span></template>
+            <template #label><span class="tab-label"><el-icon><Odometer /></el-icon> {{ t('network.tabSpeed') }}</span></template>
             <div class="console-wrap">
               <div class="nt-form console-bar">
-                <el-select v-model="forms.speed.url" class="grow" filterable allow-create default-first-option placeholder="选择或输入测速节点 URL">
+                <el-select v-model="forms.speed.url" class="grow" filterable allow-create default-first-option :placeholder="t('network.speedPlaceholder')">
                   <el-option v-for="u in speedPresets" :key="u.value" :label="u.label" :value="u.value" />
                 </el-select>
                 <el-button type="primary" :loading="running.speed" @click="run('speed')">
-                  <el-icon><Promotion /></el-icon> 开始测速
+                  <el-icon><Promotion /></el-icon> {{ t('network.startSpeedTest') }}
                 </el-button>
               </div>
             </div>
             <SpeedResult v-if="results.speed" :data="results.speed" />
-            <div v-else class="empty-hint"><el-icon><Odometer /></el-icon><span>从公共节点下载样本文件估算下行带宽</span></div>
+            <div v-else class="empty-hint"><el-icon><Odometer /></el-icon><span>{{ t('network.speedEmptyHint') }}</span></div>
           </el-tab-pane>
         </el-tabs>
       </div>
@@ -124,6 +124,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import {
   Promotion, Position, Link, Connection, Aim, Share, Coordinate, Switch, Odometer, DataLine
 } from '@element-plus/icons-vue'
@@ -135,6 +136,7 @@ import DnsResult from '../components/network/DnsResult.vue'
 import TcpResult from '../components/network/TcpResult.vue'
 import SpeedResult from '../components/network/SpeedResult.vue'
 
+const { t } = useI18n()
 const activeTab = ref('ping')
 
 const speedPresets = [
@@ -165,7 +167,7 @@ async function run(type) {
   const form = forms[type]
   const target = type === 'speed' ? form.url : (form.target || '').trim()
   if (!target) {
-    ElMessage.warning(type === 'speed' ? '请选择测速节点' : '请输入目标地址')
+    ElMessage.warning(type === 'speed' ? t('network.pleaseSelectSpeedNode') : t('network.pleaseInputTarget'))
     return
   }
 
@@ -179,7 +181,7 @@ async function run(type) {
     const res = await networkTest(payload)
     results[type] = res
   } catch (e) {
-    const msg = e.response?.data?.error || e.response?.data?.details || e.message || '测试失败'
+    const msg = e.response?.data?.error || e.response?.data?.details || e.message || t('network.testFailed')
     ElMessage.error(msg)
   } finally {
     running[type] = false

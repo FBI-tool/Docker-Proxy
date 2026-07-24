@@ -1,5 +1,6 @@
 <template>
   <div class="landing">
+    <div class="lang-float"><LangSwitch variant="nav" /></div>
     <!-- ============== 顶部导航（Glassmorphism 胶囊菜单） ============== -->
     <header class="hd">
       <div class="hd-inner">
@@ -13,12 +14,12 @@
           <span class="hd-logo-text">PROXY</span>
         </a>
         <nav class="hd-nav">
-          <a href="/" class="hd-pill active" aria-label="首页">
+          <a href="/" class="hd-pill active" :aria-label="t('landing.home')">
             <svg class="pill-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 11.5 12 4l9 7.5"/>
               <path d="M5 10v10h14V10"/>
             </svg>
-            <span>首页</span>
+            <span>{{ t('landing.home') }}</span>
           </a>
           <a
             v-for="m in menuItems"
@@ -45,9 +46,9 @@
 
     <!-- ============== Hero（普通块级，滚动时正常随页面滚走，不跟随） ============== -->
     <section class="hero">
-      <h1 class="hero-title">Docker 镜像加速服务</h1>
+      <h1 class="hero-title">Docker {{ t('landing.heroTitle') }}</h1>
       <p class="hero-sub">
-        快速拉取 Docker 镜像，无需担心网络问题，轻松部署你的容器应用
+        {{ t('landing.heroSub') }}
       </p>
     </section>
 
@@ -55,14 +56,14 @@
     <div class="tab-container">
       <div class="tab-row">
         <button
-          v-for="t in tabs"
-          :key="t.id"
+          v-for="tabBtn in tabs"
+          :key="tabBtn.id"
           class="tab"
-          :class="{ active: tab === t.id }"
-          @click="tab = t.id"
+          :class="{ active: tab === tabBtn.id }"
+          @click="tab = tabBtn.id"
         >
-          <i :class="['fas', t.icon]"></i>
-          <span>{{ t.label }}</span>
+          <i :class="['fas', tabBtn.icon]"></i>
+          <span>{{ tabBtn.label }}</span>
         </button>
       </div>
     </div>
@@ -79,9 +80,9 @@
               <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
               <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
             </svg>
-            镜像加速
+            {{ t('landing.accelerate') }}
           </h2>
-          <p class="accel-hero__sub">输入任意镜像名称，自动识别 Registry 并生成一键加速命令</p>
+          <p class="accel-hero__sub">{{ t('landing.accelSub') }}</p>
         </div>
         <!-- 复用 .search-bar：与「镜像搜索」输入框完全一致的 56px / focus ring / 渐变 CTA -->
         <div class="search-bar">
@@ -94,26 +95,26 @@
             v-model="imageInput"
             type="text"
             class="search-bar__input"
-            placeholder="输入镜像名称，例如：nginx 或 mysql:5.7"
+            :placeholder="t('landing.imageInputPlaceholder')"
             @keyup.enter="generateCommands"
           />
           <button class="search-bar__cta" @click="generateCommands">
-            <i class="fas fa-bolt"></i> 获取加速命令
+            <i class="fas fa-bolt"></i> {{ t('landing.getAccelCmd') }}
           </button>
         </div>
         <div class="search-hint">
-          <span v-if="registriesReady">支持 {{ registryHintNames }}</span>
+          <span v-if="registriesReady">{{ t('landing.supportedRegistries', { names: registryHintNames }) }}</span>
           <span v-else class="search-hint__skel" aria-hidden="true"></span>
           <span class="dot">·</span>
-          <span v-if="registriesReady">输入示例：{{ registryExampleHint }}</span>
+          <span v-if="registriesReady">{{ t('landing.inputExample', { example: registryExampleHint }) }}</span>
           <span v-else class="search-hint__skel search-hint__skel--short" aria-hidden="true"></span>
         </div>
       </div>
 
       <div v-if="accel" class="result-wrap">
-        <h2 class="result-title"><i class="fas fa-terminal"></i> 加速命令</h2>
+        <h2 class="result-title"><i class="fas fa-terminal"></i> {{ t('landing.accelCmdTitle') }}</h2>
         <div v-if="accel.detected" class="detect-badge" :style="accel.badgeStyle">
-          <i class="fas fa-check-circle"></i> 检测到 <strong>{{ accel.detectedName }}</strong> 镜像
+          <i class="fas fa-check-circle"></i> {{ t('landing.detected') }}<strong>{{ accel.detectedName }}</strong>{{ t('landing.image') }}
         </div>
         <div v-for="(c, i) in accel.commands" :key="c.type" class="cmd-card" :class="`cmd-${c.type}`">
           <div class="cmd-side"></div>
@@ -127,7 +128,7 @@
                 </div>
               </div>
               <button class="copy-btn" @click="copyCmd(c.text)">
-                <i class="fas fa-copy"></i> 复制
+                <i class="fas fa-copy"></i> {{ t('common.copy') }}
               </button>
             </div>
             <div class="cmd-code">
@@ -141,7 +142,7 @@
         <div class="quick-exec">
           <div class="quick-title">
             <i class="fas fa-bolt"></i>
-            快捷执行：复制「代理拉取 → 重命名 → 删除代理」三条命令，依次执行即可重命名为原始镜像名
+            {{ t('landing.quickExecTitle') }}
           </div>
           <div class="quick-grid">
             <div
@@ -159,25 +160,25 @@
 
       <div v-else class="empty-hint">
         <i class="fas fa-rocket"></i>
-        <p>在上方输入镜像名称，点击「获取加速命令」开始</p>
+        <p>{{ t('landing.enterImageToStart', { cmd: t('landing.getAccelCmd') }) }}</p>
       </div>
 
       <!-- 特性卡（获取到加速命令后自动隐藏，回到空态时重新显示） -->
       <div class="features" v-if="!accel">
         <div class="feature-card">
           <i class="fas fa-tachometer-alt"></i>
-          <h3>高速拉取</h3>
-          <p>通过优化的代理网络，加速 Docker 镜像拉取</p>
+          <h3>{{ t('landing.fastPull') }}</h3>
+          <p>{{ t('landing.fastPullDesc') }}</p>
         </div>
         <div class="feature-card">
           <i class="fas fa-shield-alt"></i>
-          <h3>稳定可靠</h3>
-          <p>解决网络问题导致的拉取失败，提高部署成功率</p>
+          <h3>{{ t('landing.stableReliable') }}</h3>
+          <p>{{ t('landing.stableReliableDesc') }}</p>
         </div>
         <div class="feature-card">
           <i class="fas fa-magic"></i>
-          <h3>简单易用</h3>
-          <p>一键生成加速命令，无需复杂配置，立即开始使用</p>
+          <h3>{{ t('landing.easyToUse') }}</h3>
+          <p>{{ t('landing.easyToUseDesc') }}</p>
         </div>
       </div>
     </div>
@@ -192,13 +193,13 @@
               <circle cx="11" cy="11" r="7"/>
               <path d="m20 20-3.5-3.5"/>
             </svg>
-            跨平台镜像搜索
+            {{ t('landing.crossPlatformSearch') }}
           </h2>
-          <p class="search-hero__sub">在已启用的所有 Registry 中统一检索，按平台分组展示</p>
+          <p class="search-hero__sub">{{ t('landing.searchSub') }}</p>
         </div>
 
         <!-- 分段控件：平台选择 -->
-        <div class="seg" role="tablist" aria-label="选择 Registry 平台">
+        <div class="seg" role="tablist" :aria-label="t('landing.selectRegistryPlatform')">
           <button
             class="seg-item seg-item--all"
             :class="{ active: searchScope === 'all' }"
@@ -210,7 +211,7 @@
               <circle cx="12" cy="12" r="9"/>
               <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>
             </svg>
-            <span>全部</span>
+            <span>{{ t('common.all') }}</span>
           </button>
           <button
             v-for="r in registries"
@@ -245,21 +246,21 @@
           <button class="search-bar__cta" :disabled="searching" @click="searchImages()">
             <i v-if="!searching" class="fas fa-bolt"></i>
             <i v-else class="fas fa-spinner fa-spin"></i>
-            <span>{{ searching ? '搜索中' : '搜索镜像' }}</span>
+            <span>{{ searching ? t('landing.searching') : t('landing.searchImagesBtn') }}</span>
           </button>
         </div>
 
         <div class="search-hint">
-          <span>支持关键词：镜像名 / 命名空间 / 描述</span>
+          <span>{{ t('landing.keywordHint') }}</span>
           <span class="dot">·</span>
-          <span>输入示例：nginx、bitnami/mysql、library/redis</span>
+          <span>{{ t('landing.searchExample') }}</span>
         </div>
       </div>
 
       <!-- ============ 标签详情视图 ============ -->
       <div v-if="tagView" class="tag-view">
         <div class="tag-breadcrumb">
-          <a href="javascript:void(0)" @click="closeTagView"><i class="fas fa-arrow-left"></i> 返回搜索结果</a>
+          <a href="javascript:void(0)" @click="closeTagView"><i class="fas fa-arrow-left"></i> {{ t('landing.backToResults') }}</a>
         </div>
         <div class="tag-header">
           <h2 class="tag-title">
@@ -270,24 +271,24 @@
           </h2>
           <p class="image-description">{{ tagView.description }}</p>
           <div class="image-meta">
-            <span v-if="tagView.stars" class="meta-chip"><i class="fas fa-star"></i> {{ fmtCount(tagView.stars) }} 星标</span>
-            <span v-if="tagView.pulls" class="meta-chip"><i class="fas fa-download"></i> {{ fmtCount(tagView.pulls) }} 下载</span>
-            <span class="meta-chip"><i class="fas fa-tags"></i> {{ fmtCount(tagView.count) }} 个标签</span>
+            <span v-if="tagView.stars" class="meta-chip"><i class="fas fa-star"></i> {{ fmtCount(tagView.stars) }} {{ t('landing.stars') }}</span>
+            <span v-if="tagView.pulls" class="meta-chip"><i class="fas fa-download"></i> {{ fmtCount(tagView.pulls) }} {{ t('landing.downloads') }}</span>
+            <span class="meta-chip"><i class="fas fa-tags"></i> {{ fmtCount(tagView.count) }} {{ t('landing.tagsCount') }}</span>
           </div>
         </div>
 
         <div v-if="tagView.loading" class="loading-indicator">
-          <i class="fas fa-spinner fa-spin"></i> 正在加载镜像标签...
+          <i class="fas fa-spinner fa-spin"></i> {{ t('landing.loadingTags') }}
         </div>
         <div v-else-if="tagView.error" class="error-state" role="alert" aria-live="polite">
           <div class="error-icon-wrap">
             <i class="fas fa-exclamation-circle"></i>
           </div>
-          <h3 class="error-title">加载镜像标签失败</h3>
+          <h3 class="error-title">{{ t('landing.loadTagsFailed') }}</h3>
           <p class="error-desc">{{ tagView.error }}</p>
-          <p class="error-hint">请检查镜像名称、Registry 访问凭证或网络连接后重试。</p>
+          <p class="error-hint">{{ t('landing.errorHint') }}</p>
           <button class="retry-btn" @click="loadTagsPage(tagView.page)">
-            <i class="fas fa-redo"></i> 重新加载
+            <i class="fas fa-redo"></i> {{ t('landing.reload') }}
           </button>
         </div>
         <template v-else>
@@ -299,43 +300,42 @@
                   <path d="m20 20-3.5-3.5"/>
                 </svg>
               </span>
-              <input type="text" v-model="tagFilter" placeholder="搜索 TAG..." />
-              <button class="reset-search-btn" @click="tagFilter = ''"><i class="fas fa-times"></i> 重置</button>
+              <input type="text" v-model="tagFilter" :placeholder="t('landing.searchTagPlaceholder')" />
+              <button class="reset-search-btn" @click="tagFilter = ''"><i class="fas fa-times"></i> {{ t('common.reset') }}</button>
             </div>
           </div>
           <div class="tag-search-stats">
             <p>
-              共找到 <strong>{{ fmtCount(tagView.count) }}</strong> 个标签，当前第 <strong>{{ tagView.page }}</strong> / <strong>{{ tagView.totalPages }}</strong> 页
-              <template v-if="tagFilter">，匹配 <strong>{{ filteredTags.length }}</strong> 个</template>
+              {{ t('landing.foundTagsPrefix') }}<strong>{{ fmtCount(tagView.count) }}</strong>{{ t('landing.tagsUnit') }}{{ t('landing.currentPagePrefix') }}<strong>{{ tagView.page }}</strong> / <strong>{{ tagView.totalPages }}</strong>{{ t('landing.pageUnit') }}<template v-if="tagFilter">{{ t('landing.matchPrefix') }}<strong>{{ filteredTags.length }}</strong>{{ t('landing.matchUnit') }}</template>
             </p>
           </div>
           <div class="tag-table-container">
             <table class="tag-table">
               <thead>
-                <tr><th>TAG</th><th>OS/ARCH</th><th>大小</th><th>更新时间</th><th>操作</th></tr>
+                <tr><th>TAG</th><th>OS/ARCH</th><th>{{ t('landing.thSize') }}</th><th>{{ t('landing.thUpdateTime') }}</th><th>{{ t('common.actions') }}</th></tr>
               </thead>
               <tbody>
-                <tr v-for="(t, i) in filteredTags" :key="i" :data-tag="tagNameOf(t)">
-                  <td><span class="tag-name-cell">{{ tagNameOf(t) }}</span></td>
+                <tr v-for="(tag, i) in filteredTags" :key="i" :data-tag="tagNameOf(tag)">
+                  <td><span class="tag-name-cell">{{ tagNameOf(tag) }}</span></td>
                   <td class="arch-cell">
-                    <div v-if="tagOsArchList(t).length" class="arch-list">
-                      <span v-for="(a, ai) in shownArchList(t)" :key="ai" class="arch-chip">{{ a }}</span>
+                    <div v-if="tagOsArchList(tag).length" class="arch-list">
+                      <span v-for="(a, ai) in shownArchList(tag)" :key="ai" class="arch-chip">{{ a }}</span>
                       <button
-                        v-if="tagOsArchList(t).length > 3"
+                        v-if="tagOsArchList(tag).length > 3"
                         type="button"
                         class="arch-toggle"
-                        @click="toggleArch(t)"
-                      >{{ expandedArch[tagNameOf(t)] ? '收起' : '+' + (tagOsArchList(t).length - 3) }}</button>
+                        @click="toggleArch(tag)"
+                        >{{ expandedArch[tagNameOf(tag)] ? t('landing.collapse') : '+' + (tagOsArchList(tag).length - 3) }}</button>
                     </div>
-                    <span v-else class="arch-unknown">未知</span>
+                    <span v-else class="arch-unknown">{{ t('landing.unknown') }}</span>
                   </td>
-                  <td>{{ tagSizeOf(t) }}</td>
-                  <td>{{ tagDateOf(t) }}</td>
+                  <td>{{ tagSizeOf(tag) }}</td>
+                  <td>{{ tagDateOf(tag) }}</td>
                   <td>
-                    <button class="tag-use-btn" @click="useTag(t)"><i class="fas fa-rocket"></i> 使用</button>
+                    <button class="tag-use-btn" @click="useTag(tag)"><i class="fas fa-rocket"></i> {{ t('common.use') }}</button>
                   </td>
                 </tr>
-                <tr v-if="!filteredTags.length"><td colspan="5" class="no-tags-message">本页暂无标签数据</td></tr>
+                <tr v-if="!filteredTags.length"><td colspan="5" class="no-tags-message">{{ t('landing.noTagsThisPage') }}</td></tr>
               </tbody>
             </table>
           </div>
@@ -343,11 +343,11 @@
           <!-- 标签分页 -->
           <div v-if="tagView.totalPages > 1" class="pager">
             <button class="pager-btn" :disabled="tagView.page <= 1" @click="goTagPage(tagView.page - 1)">
-              <i class="fas fa-chevron-left"></i> 上一页
+              <i class="fas fa-chevron-left"></i> {{ t('landing.prevPage') }}
             </button>
-            <span class="pager-info">第 {{ tagView.page }} / {{ tagView.totalPages }} 页</span>
+            <span class="pager-info">{{ t('landing.pageInfo', { page: tagView.page, total: tagView.totalPages }) }}</span>
             <button class="pager-btn" :disabled="tagView.page >= tagView.totalPages" @click="goTagPage(tagView.page + 1)">
-              下一页 <i class="fas fa-chevron-right"></i>
+              {{ t('landing.nextPage') }} <i class="fas fa-chevron-right"></i>
             </button>
           </div>
         </template>
@@ -357,7 +357,7 @@
       <template v-else>
         <div v-loading="searching" class="search-results" ref="resultsRef">
           <div v-if="searchResults.length" class="result-summary">
-            找到约 <strong>{{ fmtCount(searchTotal) }}</strong> 个相关镜像
+            {{ t('landing.foundAboutPrefix') }}<strong>{{ fmtCount(searchTotal) }}</strong>{{ t('landing.relatedImagesUnit') }}
           </div>
           <div v-if="searchResults.length" class="result-list">
             <div v-for="(r, i) in searchResults" :key="i" class="search-result-item">
@@ -370,7 +370,7 @@
                     <i :class="(regInfo(r.registryId)?.icon) || 'fas fa-cube'"></i>
                   </span>
                   <h3 class="result-name">{{ r.fullName || r.name }}</h3>
-                  <span v-if="r.isOfficial" class="official-badge"><i class="fas fa-check-circle"></i> 官方</span>
+                  <span v-if="r.isOfficial" class="official-badge"><i class="fas fa-check-circle"></i> {{ t('landing.official') }}</span>
                 </div>
                 <div class="result-stats">
                   <span v-if="r.stars || r.star_count" class="stats">
@@ -387,36 +387,36 @@
               <!-- 镜像名（原版默认地址，参考老版呈现） -->
               <div class="result-pull-command">
                 <code>{{ r.fullName || r.name }}</code>
-                <button class="copy-small-btn" @click="copyCmd(r.fullName || r.name)" title="复制镜像名"><i class="fas fa-copy"></i></button>
+                <button class="copy-small-btn" @click="copyCmd(r.fullName || r.name)" :title="t('landing.copyImageNameTitle')"><i class="fas fa-copy"></i></button>
               </div>
               <div class="result-actions">
                 <button class="action-btn primary" @click="useImage(r)">
-                  <i class="fas fa-rocket"></i> 使用此镜像
+                  <i class="fas fa-rocket"></i> {{ t('landing.useThisImage') }}
                 </button>
                 <button v-if="canViewTags(r)" class="action-btn secondary" @click="openTags(r)">
-                  <i class="fas fa-tags"></i> 查看标签
+                  <i class="fas fa-tags"></i> {{ t('landing.viewTags') }}
                 </button>
               </div>
             </div>
           </div>
           <div v-else-if="searchInput" class="empty">
             <i class="fas fa-search"></i>
-            <p>没有找到匹配 "{{ searchInput }}" 的镜像</p>
+            <p>{{ t('landing.noMatch', { kw: searchInput }) }}</p>
           </div>
           <div v-else class="empty">
             <i class="fas fa-search"></i>
-            <p>输入关键词开始搜索</p>
+            <p>{{ t('landing.enterKeywordToSearch') }}</p>
           </div>
         </div>
 
         <!-- 分页 -->
         <div v-if="searchTotalPages > 1" class="pager">
           <button class="pager-btn" :disabled="searchPage <= 1" @click="goSearchPage(searchPage - 1)">
-            <i class="fas fa-chevron-left"></i> 上一页
+            <i class="fas fa-chevron-left"></i> {{ t('landing.prevPage') }}
           </button>
-          <span class="pager-info">第 {{ searchPage }} / {{ searchTotalPages }} 页</span>
+          <span class="pager-info">{{ t('landing.pageInfo', { page: searchPage, total: searchTotalPages }) }}</span>
           <button class="pager-btn" :disabled="searchPage >= searchTotalPages" @click="goSearchPage(searchPage + 1)">
-            下一页 <i class="fas fa-chevron-right"></i>
+            {{ t('landing.nextPage') }} <i class="fas fa-chevron-right"></i>
           </button>
         </div>
 
@@ -424,18 +424,18 @@
         <div class="features" v-if="!searchResults.length && !searchInput">
           <div class="feature-card">
             <i class="fas fa-search"></i>
-            <h3>快速搜索</h3>
-            <p>便捷地搜索 Docker Hub 上的所有可用镜像</p>
+            <h3>{{ t('landing.quickSearch') }}</h3>
+            <p>{{ t('landing.quickSearchDesc') }}</p>
           </div>
           <div class="feature-card">
             <i class="fas fa-tag"></i>
-            <h3>版本管理</h3>
-            <p>查看所有可用的镜像标签和版本信息</p>
+            <h3>{{ t('landing.versionMgmt') }}</h3>
+            <p>{{ t('landing.versionMgmtDesc') }}</p>
           </div>
           <div class="feature-card">
             <i class="fas fa-rocket"></i>
-            <h3>一键部署</h3>
-            <p>快速获取并使用所需的 Docker 镜像</p>
+            <h3>{{ t('landing.oneClickDeploy') }}</h3>
+            <p>{{ t('landing.oneClickDeployDesc') }}</p>
           </div>
         </div>
       </template>
@@ -446,7 +446,7 @@
       <div v-loading="docsLoading" class="docs-layout">
         <div v-if="docs.length" class="docs-grid">
           <aside class="docs-aside">
-            <h3 class="docs-list-title">文档列表</h3>
+            <h3 class="docs-list-title">{{ t('landing.docList') }}</h3>
             <ul class="docs-list">
               <li
                 v-for="d in docs"
@@ -462,7 +462,7 @@
           </aside>
           <article class="docs-content">
             <div v-if="currentDoc" class="docs-eyebrow">
-              <i class="fas fa-book-open"></i> 使用教程
+              <i class="fas fa-book-open"></i> {{ t('landing.docs') }}
             </div>
             <h1 v-if="currentDoc" class="docs-h1">{{ currentDoc.title }}</h1>
             <div
@@ -472,13 +472,13 @@
             ></div>
             <div v-else class="empty">
               <i class="fas fa-book-open"></i>
-              <p>请选择左侧文档</p>
+              <p>{{ t('landing.selectDocHint') }}</p>
             </div>
           </article>
         </div>
         <div v-else class="empty">
           <i class="fas fa-book"></i>
-          <p>暂无文档</p>
+          <p>{{ t('landing.noDocs') }}</p>
         </div>
       </div>
     </div>
@@ -499,8 +499,8 @@
         v-show="showBackTop"
         class="back-top"
         @click="scrollToTop"
-        title="返回顶部"
-        aria-label="返回顶部"
+        :title="t('landing.backToTop')"
+        :aria-label="t('landing.backToTop')"
       >
         <i class="fas fa-arrow-up"></i>
       </button>
@@ -511,6 +511,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import {
@@ -525,6 +526,7 @@ import {
   getSiteInfo
 } from '../services'
 import { getMenuIconSvg as getMenuIconSvgFromLib } from '../lib/menuIcons'
+import LangSwitch from '../components/LangSwitch.vue'
 
 marked.setOptions({
   breaks: true,
@@ -532,20 +534,21 @@ marked.setOptions({
 })
 
 const router = useRouter()
+const { t } = useI18n()
 const year = new Date().getFullYear()
 const defaultLogo = 'https://cdn.jsdelivr.net/gh/dqzboy/Blog-Image/BlogCourse/docker-proxy.png'
 const logoUrl = ref(defaultLogo)
 
-const tabs = [
-  { id: 'accelerate', label: '镜像加速', icon: 'fa-rocket' },
-  { id: 'search', label: '镜像搜索', icon: 'fa-search' },
-  { id: 'docs', label: '使用教程', icon: 'fa-book' }
-]
+const tabs = computed(() => [
+  { id: 'accelerate', label: t('landing.accelerate'), icon: 'fa-rocket' },
+  { id: 'search', label: t('landing.searchImages'), icon: 'fa-search' },
+  { id: 'docs', label: t('landing.docs'), icon: 'fa-book' }
+])
 
 // tab 持久化：刷新页面后保留用户上一次的 tab 位置，避免「搜索/教程」页被强制回弹到「加速」页。
 // 同步从 localStorage 读取，初次渲染就是目标值，无 tab 闪烁。
 const TAB_STORAGE_KEY = 'hubcmdui_landing_tab'
-const VALID_TAB_IDS = tabs.map(t => t.id)
+const VALID_TAB_IDS = tabs.value.map(t => t.id)
 function loadStoredTab() {
   try {
     const v = localStorage.getItem(TAB_STORAGE_KEY)
@@ -754,10 +757,10 @@ function setAccel(registryId, imagePath, originalImage) {
     detectedName: rp.name,
     badgeStyle: { background: rp.color, color: rp.badge },
     commands: [
-      { type: 'proxy', label: '代理拉取镜像', text: `docker pull ${proxyImage}`, hint: '' },
-      { type: 'original', label: '原始拉取命令', text: `docker pull ${originalImage}`, hint: '不通过代理拉取，可能受网络影响' },
-      { type: 'rename', label: '重命名镜像', text: `docker tag ${proxyImage} ${originalImage}`, hint: '将代理镜像重命名为原始镜像名' },
-      { type: 'rmi', label: '删除代理镜像', text: `docker rmi ${proxyImage}`, hint: '重命名完成后，可删除代理镜像' }
+      { type: 'proxy', label: t('landing.proxyPull'), text: `docker pull ${proxyImage}`, hint: '' },
+      { type: 'original', label: t('landing.originalPull'), text: `docker pull ${originalImage}`, hint: t('landing.originalPullHint') },
+      { type: 'rename', label: t('landing.renameImage'), text: `docker tag ${proxyImage} ${originalImage}`, hint: t('landing.renameHint') },
+      { type: 'rmi', label: t('landing.removeProxy'), text: `docker rmi ${proxyImage}`, hint: t('landing.rmiHint') }
     ]
   }
 }
@@ -765,7 +768,7 @@ function setAccel(registryId, imagePath, originalImage) {
 function generateCommands() {
   const img = (imageInput.value || '').trim()
   if (!img) {
-    ElMessage.warning('请输入镜像名称')
+    ElMessage.warning(t('landing.pleaseEnterImage'))
     return
   }
   const d = detectImage(img)
@@ -774,14 +777,14 @@ function generateCommands() {
 
 function copyCmd(text) {
   if (text == null || text === '') {
-    ElMessage.warning('没有可复制的内容')
+    ElMessage.warning(t('landing.nothingToCopy'))
     return
   }
   const str = String(text)
   // 优先用现代 Clipboard API（仅在 HTTPS / localhost 等安全上下文可用）
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(str)
-      .then(() => ElMessage.success('已复制到剪贴板'))
+      .then(() => ElMessage.success(t('landing.copiedToClipboard')))
       .catch(() => fallbackCopy(str))
     return
   }
@@ -819,10 +822,10 @@ function fallbackCopy(text) {
       sel.removeAllRanges()
       sel.addRange(prevRange)
     }
-    if (ok) ElMessage.success('已复制到剪贴板')
-    else ElMessage.error('复制失败，请手动选中复制')
+    if (ok) ElMessage.success(t('landing.copiedToClipboard'))
+    else ElMessage.error(t('landing.copyFailedManual'))
   } catch (e) {
-    ElMessage.error('复制失败：' + (e?.message || e))
+    ElMessage.error(t('landing.copyFailedReason', { reason: e?.message || e }))
   }
 }
 
@@ -868,7 +871,7 @@ function escapeHtml(str) {
 }
 function renderDescription(text) {
   const raw = String(text || '').trim()
-  if (!raw) return '<span class="desc-empty">暂无描述</span>'
+  if (!raw) return '<span class="desc-empty">' + t('landing.noDescription') + '</span>'
   try {
     const html = marked.parseInline(raw, { breaks: false })
     return html.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
@@ -895,14 +898,14 @@ function regInfo(id) {
 }
 
 const searchPlaceholder = computed(() => {
-  if (searchScope.value === 'all') return '输入关键词在所有平台搜索镜像，例如：nginx、mysql、redis…'
-  return `在 ${registryAbbr(currentReg.value) || ''} 中搜索镜像，例如：nginx、mysql、redis…`
+  if (searchScope.value === 'all') return t('landing.searchPlaceholderAll')
+  return t('landing.searchPlaceholderScope', { reg: registryAbbr(currentReg.value) || '' })
 })
 
 async function searchImages(page = 1) {
   const kw = (searchInput.value || '').trim()
   if (!kw) {
-    ElMessage.warning('请输入搜索关键词')
+    ElMessage.warning(t('landing.pleaseEnterKeyword'))
     return
   }
   // 切换关键词时回到第一页
@@ -965,7 +968,7 @@ async function searchImages(page = 1) {
     }
   } catch (e) {
     const msg = e?.response?.data?.error || e.message
-    ElMessage.error('搜索失败：' + msg)
+    ElMessage.error(t('landing.searchFailedReason', { reason: msg }))
   } finally {
     searching.value = false
   }
@@ -1039,7 +1042,7 @@ function useImage(r) {
   imageInput.value = full
   tab.value = 'accelerate'
   setAccel(id, full, full)
-  ElMessage.success(`已选择镜像：${full}`)
+  ElMessage.success(t('landing.selectedImage', { name: full }))
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -1052,7 +1055,7 @@ async function openTags(r) {
   tagView.value = {
     imageName: name,
     registryId: id,
-    description: r.description || '暂无描述',
+    description: r.description || t('landing.noDescription'),
     stars: r.stars || r.star_count || 0,
     pulls: r.pulls || r.pull_count || 0,
     prefix: pullPrefix,
@@ -1089,7 +1092,7 @@ async function loadTagsPage(p) {
     tagView.value = {
       ...tagView.value,
       loading: false,
-      error: e?.response?.data?.error || e.message || '加载标签失败'
+      error: e?.response?.data?.error || e.message || t('landing.loadTagsErrorFallback')
     }
   }
 }
@@ -1177,13 +1180,13 @@ function toggleArch(t) {
 }
 
 // 使用指定标签：跳到加速页，按后台代理地址生成 镜像:tag 的加速命令
-function useTag(t) {
-  const name = tagNameOf(t)
+function useTag(tag) {
+  const name = tagNameOf(tag)
   const full = `${tagView.value.imageName}:${name}`
   imageInput.value = full
   tab.value = 'accelerate'
   setAccel(tagView.value.registryId, full, full)
-  ElMessage.success(`已选择镜像：${full}`)
+  ElMessage.success(t('landing.selectedImage', { name: full }))
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -1200,7 +1203,7 @@ async function loadDocs() {
       loadDoc(docs.value[0])
     }
   } catch (e) {
-    ElMessage.error('文档加载失败：' + (e?.response?.data?.error || e.message))
+    ElMessage.error(t('landing.docLoadFailedReason', { reason: e?.response?.data?.error || e.message }))
   } finally {
     docsLoading.value = false
   }
@@ -1211,7 +1214,7 @@ async function loadDoc(d) {
   try {
     currentDoc.value = await getPublicDoc(id)
   } catch (e) {
-    ElMessage.error('文档读取失败：' + (e?.response?.data?.error || e.message))
+    ElMessage.error(t('landing.docReadFailedReason', { reason: e?.response?.data?.error || e.message }))
   }
 }
 
@@ -1290,7 +1293,7 @@ const registryHintNames = computed(() => {
   const names = registries.value.map(r => registryAbbr(r)).filter(Boolean)
   if (!names.length) return 'Docker Hub'
   if (names.length <= 6) return names.join(' / ')
-  return names.slice(0, 6).join(' / ') + ` 等 ${names.length} 个`
+  return names.slice(0, 6).join(' / ') + t('landing.registryEtc', { n: names.length })
 })
 
 const registryExampleHint = computed(() => {
@@ -1349,6 +1352,14 @@ onUnmounted(() => {
      顶部导航 .hd 用负 margin 出血；.hero / .tab-container / .content-card
      各自 width:100% + max-width:1200px + margin:0 auto 居中。 */
   padding: 0 30px 40px;
+}
+
+/* ============== 语言切换器（固定右上角，整页可见） ============== */
+.lang-float {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1000;
 }
 
 /* ============== 顶部导航（Glassmorphism 胶囊菜单） ============== */

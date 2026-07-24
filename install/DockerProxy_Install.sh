@@ -1659,9 +1659,9 @@ EOF
 fi
 }
 
-# 部署 Docker 镜像加速（go-proxy + hubcmd-ui），直接拉取镜像启动，无需克隆仓库
+# 部署 Docker 镜像加速，直接拉取镜像启动，无需克隆仓库
 function INSTALL_DOCKER_PROXY() {
-SEPARATOR "部署 Docker 镜像加速 (go-proxy + hubcmd-ui)"
+SEPARATOR "部署 Docker 镜像加速"
 CHECK_COMPOSE_CMD
 # 选择下载源（国外/国内）
 local COMPOSE_SRC="$GITRAW"
@@ -1683,7 +1683,7 @@ fi
 
 GEN_ENV
 PROXY_HTTP
-INFO "拉取镜像并启动 Docker 镜像加速 (go-proxy + hubcmd-ui) ..."
+INFO "拉取镜像并启动 Docker 镜像加速 ..."
 $DOCKER_COMPOSE_CMD -f "${PROXY_DIR}/${DOCKER_COMPOSE_FILE}" up -d
 if [ $? -ne 0 ]; then
     ERROR "服务启动失败，请通过查看日志确认原因: $DOCKER_COMPOSE_CMD -f ${PROXY_DIR}/${DOCKER_COMPOSE_FILE} logs"
