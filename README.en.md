@@ -154,7 +154,17 @@ The config file is mounted on the host at `./config/go-proxy/` (inside the conta
       </td>
       <td width="50%" align="center">
         <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="CloudCone" width="200" height="150">
+          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="aihub" width="200" height="150">
+        </a>
+      </td>
+    </tr>
+    <tr>
+      <td width="50%" align="left">
+        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">Fast, reliable, and secure web hosting services to meet all your business needs.99.9% uptime guarantee.</a>
+      </td>
+      <td width="50%" align="center">
+        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">
+          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="dedione" width="200" height="150">
         </a>
       </td>
     </tr>
@@ -164,7 +174,7 @@ The config file is mounted on the host at `./config/go-proxy/` (inside the conta
       </td>
       <td width="50%" align="center">
         <a href="https://docker-proxy-desc.vercel.app/dedirock.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="RackNerd" width="200" height="150">
+          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="dedirock" width="200" height="150">
         </a>
       </td>
     </tr>

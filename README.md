@@ -154,7 +154,17 @@ bash -c "$(curl -fsSL https://ghp.ci/https://raw.githubusercontent.com/dqzboy/Do
       </td>
       <td width="50%" align="center">
         <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="CloudCone" width="200" height="150">
+          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="aihub" width="200" height="150">
+        </a>
+      </td>
+    </tr>
+    <tr>
+      <td width="50%" align="left">
+        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">快速、可靠、安全的网站托管服务，满足您的所有业务需求。· 24小时退款保证 · 高性能服务器 · 99.9%正常运行时间保证。</a>
+      </td>
+      <td width="50%" align="center">
+        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">
+          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="dedione" width="200" height="150">
         </a>
       </td>
     </tr>
@@ -164,7 +174,7 @@ bash -c "$(curl -fsSL https://ghp.ci/https://raw.githubusercontent.com/dqzboy/Do
       </td>
       <td width="50%" align="center">
         <a href="https://docker-proxy-desc.vercel.app/dedirock.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="RackNerd" width="200" height="150">
+          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="dedirock" width="200" height="150">
         </a>
       </td>
     </tr>
