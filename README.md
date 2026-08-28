@@ -142,31 +142,29 @@ bash -c "$(curl -fsSL https://ghp.ci/https://raw.githubusercontent.com/dqzboy/Do
 
 <table>
   <tr>
-    <td width="50%" align="center">
+    <td width="33.33%" align="center">
       <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="AIHUB" width="280" height="158"><br><strong>AIHUB</strong></a><br>
       <sub>稳定实惠的 AI API 中转服务</sub>
     </td>
-    <td width="50%" align="center">
-      <a href="https://docker-proxy-desc.vercel.app/dedione.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="DediOne" width="280" height="158"><br><strong>DediOne</strong></a><br>
+    <td width="33.33%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/dedione.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/dedione-vps.png?raw=true" alt="DediOne" width="280" height="158"><br><strong>DediOne</strong></a><br>
       <sub>快速可靠的网站托管服务</sub>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
+    <td width="33.33%" align="center">
       <a href="https://docker-proxy-desc.vercel.app/dedirock.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="DediRock" width="280" height="158"><br><strong>DediRock</strong></a><br>
       <sub>美国多机房高性价比 VPS</sub>
     </td>
-    <td width="50%" align="center">
+  </tr>
+  <tr>
+    <td width="33.33%" align="center">
       <a href="https://docker-proxy-desc.vercel.app/racknerd.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/Image_2025-07-07_16-14-49.png?raw=true" alt="RackNerd" width="280" height="158"><br><strong>RackNerd</strong></a><br>
       <sub>适合建站和 Docker服务的海外 VPS</sub>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
+    <td width="33.33%" align="center">
       <a href="https://docker-proxy-desc.vercel.app/cloudcone.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/111.png?raw=true" alt="CloudCone" width="280" height="158"><br><strong>CloudCone</strong></a><br>
       <sub>灵活按需付费的云服务器</sub>
     </td>
-    <td width="50%"><!-- 新推广位 --></td>
+    <td width="33.33%"><!-- 新推广位 --></td>
   </tr>
 </table>
 

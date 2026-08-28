@@ -142,31 +142,29 @@ The config file is mounted on the host at `./config/go-proxy/` (inside the conta
 
 <table>
   <tr>
-    <td width="50%" align="center">
+    <td width="33.33%" align="center">
       <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="AIHUB" width="280" height="158"><br><strong>AIHUB</strong></a><br>
       <sub>Reliable and affordable AI API relay service</sub>
     </td>
-    <td width="50%" align="center">
-      <a href="https://docker-proxy-desc.vercel.app/dedione.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="DediOne" width="280" height="158"><br><strong>DediOne</strong></a><br>
+    <td width="33.33%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/dedione.html"><img src=https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/dedione-vps.png?raw=true" alt="DediOne" width="280" height="158"><br><strong>DediOne</strong></a><br>
       <sub>Fast and reliable web hosting services</sub>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
+    <td width="33.33%" align="center">
       <a href="https://docker-proxy-desc.vercel.app/dedirock.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="DediRock" width="280" height="158"><br><strong>DediRock</strong></a><br>
       <sub>Cost-effective VPS across multiple U.S. data centers</sub>
     </td>
-    <td width="50%" align="center">
+  </tr>
+  <tr>
+    <td width="33.33%" align="center">
       <a href="https://docker-proxy-desc.vercel.app/racknerd.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/Image_2025-07-07_16-14-49.png?raw=true" alt="RackNerd" width="280" height="158"><br><strong>RackNerd</strong></a><br>
       <sub>Overseas VPS for websites and Docker services</sub>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
+    <td width="33.33%" align="center">
       <a href="https://docker-proxy-desc.vercel.app/cloudcone.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/111.png?raw=true" alt="CloudCone" width="280" height="158"><br><strong>CloudCone</strong></a><br>
       <sub>Flexible pay-as-you-go cloud servers</sub>
     </td>
-    <td width="50%"><!-- New promotion slot --></td>
+    <td width="33.33%"><!-- New promotion slot --></td>
   </tr>
 </table>
 
