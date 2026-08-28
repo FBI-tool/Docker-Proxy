@@ -108,7 +108,7 @@ export default {
     "fillProxyFirst": "Please fill in the proxy address before enabling",
     "proxyAddress": "Proxy Address",
     "proxyPlaceholder": "e.g. {id}.proxy.example.com",
-    "proxyHint": "Enter the proxy service address for this Registry",
+    "proxyHint": "Domain used by clients to pull images",
     "proxyEmpty": "Proxy address is empty",
     "loadRegistryFailed": "Failed to load Registry: {msg}",
     "cannotEnable": "Cannot Enable",
@@ -118,7 +118,13 @@ export default {
     "saveFailed": "Failed to save: {msg}",
     "cannotSave": "Cannot Save",
     "saveAlertMsg": "The proxy address for \"{name}\" is empty, please fill it in before saving.",
-    "savedWithName": "\"{name}\" saved"
+    "savedWithName": "\"{name}\" saved",
+    "landingSectionTitle": "Landing Page Visibility",
+    "landingSectionDesc": "Control whether the landing page (/) is shown to visitors.",
+    "landingSwitchLabel": "Show landing page",
+    "landingSwitchDesc": "When disabled, the landing page shows nothing to visitors. Admins can re-enable it from the admin panel.",
+    "landingEnabledToast": "Landing page enabled",
+    "landingDisabledToast": "Landing page disabled"
   },
   "dashboard": {
     "title": "System Dashboard",

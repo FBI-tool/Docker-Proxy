@@ -5,7 +5,7 @@
       <div class="brand">
         <span class="brand-logo">
           <img v-if="logo" :src="logo" alt="Docker 镜像加速服务" />
-          <img v-else src="/images/docker-proxy.png" alt="Docker 镜像加速服务" />
+          <img v-else src="/images/docker-proxy.svg" alt="Docker 镜像加速服务" />
         </span>
         <span class="brand-text">
           <span class="brand-name">{{ t('layout.brandName') }}</span>
@@ -214,7 +214,7 @@ onMounted(async () => {
   overflow-y: auto;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
-.brand-logo img { height: 30px; width: auto; display: block; border-radius: 6px; }
+.brand-logo img { height: 30px; width: auto; display: block; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
 .brand-name { font-size: 14px; font-weight: 700; color: var(--fg); letter-spacing: .2px; white-space: nowrap; }
 .brand-sub { font-size: 11px; color: var(--muted-2); letter-spacing: .5px; }

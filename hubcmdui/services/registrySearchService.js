@@ -6,11 +6,11 @@ const axios = require('axios');
 const logger = require('../logger');
 
 // HTTP 请求配置
-// 显式 proxy:false 绕过系统 HTTP_PROXY/HTTPS_PROXY，避免被本地开发代理拦截后
-// 以明文 HTTP 打到 HTTPS 端口（Docker Hub 会返回 400 "plain HTTP request was sent to HTTPS port"）
+// 不要在这里设置 proxy:false。Node.js 下的 Axios 会根据
+// HTTP_PROXY / HTTPS_PROXY / NO_PROXY 环境变量决定是否走出口代理；
+// 强制关闭代理会导致受限网络中的 Docker Hub/Registry 搜索直接超时。
 const httpOptions = {
   timeout: 15000,
-  proxy: false,
   headers: {
     'User-Agent': 'RegistrySearchClient/1.0',
     'Accept': 'application/json'

@@ -45,6 +45,9 @@ export const validateResetToken = (token) =>
 export const getConfig = () => api.get('/config').then(r => r.data)
 // 站点锁定信息（GitHub 地址等，后端加密存储且不可更改）
 export const getSiteInfo = () => api.get('/site').then(r => r.data)
+// 前台落地页（/）展示开关：公开读、后管写（requireLogin）
+export const getLandingVisible = () => api.get('/site/landing-visible').then(r => r.data)
+export const setLandingVisible = (visible) => api.post('/site/landing-visible', { visible }).then(r => r.data)
 export const saveConfig = (cfg) => api.post('/config', cfg).then(r => r.data)
 export const getMenuItems = () => api.get('/menu/items').then(r => r.data)
 export const saveMenuItems = (menuItems) =>

@@ -108,7 +108,7 @@ export default {
     "fillProxyFirst": "請先填寫代理地址，再啟用",
     "proxyAddress": "代理地址",
     "proxyPlaceholder": "例如：{id}.proxy.example.com",
-    "proxyHint": "填寫此 Registry 的代理服務地址",
+    "proxyHint": "用戶端拉取映像時使用的網域",
     "proxyEmpty": "代理地址為空",
     "loadRegistryFailed": "載入 Registry 失敗：{msg}",
     "cannotEnable": "無法啟用",
@@ -118,7 +118,13 @@ export default {
     "saveFailed": "保存失敗：{msg}",
     "cannotSave": "無法保存",
     "saveAlertMsg": "「{name}」的代理地址為空，請填寫後再保存。",
-    "savedWithName": "「{name}」已保存"
+    "savedWithName": "「{name}」已保存",
+    "landingSectionTitle": "前台展示",
+    "landingSectionDesc": "控制前台落地頁（/）是否對訪客展示。",
+    "landingSwitchLabel": "前台頁面展示",
+    "landingSwitchDesc": "關閉後前台落地頁不展示任何內容（管理員可於後台隨時重新開啟）",
+    "landingEnabledToast": "已開啟前台展示",
+    "landingDisabledToast": "已關閉前台展示"
   },
   "dashboard": {
     "title": "系統看板",

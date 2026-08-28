@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="logo-title logo-desc">
+  <title id="logo-title">Docker Proxy Falcon</title>
+  <desc id="logo-desc">A diving falcon whose wing channels converge into one fast registry route.</desc>
+  <defs>
+    <linearGradient id="falcon-gradient" x1="13" y1="76" x2="87" y2="19" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E3A8A"/>
+      <stop offset="0.52" stop-color="#3D7CF4"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <mask id="falcon-cutouts">
+      <rect width="100" height="100" fill="white"/>
+      <path d="M31 55C45 47 55 36 65 23M40 61C54 52 65 42 75 29" fill="none" stroke="black" stroke-width="3.4" stroke-linecap="round"/>
+      <circle cx="78" cy="51" r="2" fill="black"/>
+    </mask>
+  </defs>
+  <path fill="url(#falcon-gradient)" mask="url(#falcon-cutouts)" d="M8 62C23 58 34 51 42 39C51 26 66 18 89 14C82 29 72 41 59 50C69 47 78 47 86 51C83 53 82 56 84 59C71 63 63 71 50 84C44 71 31 64 8 62Z"/>
+  <path fill="url(#falcon-gradient)" d="M82 51L98 55L82 59Z"/>
+</svg>

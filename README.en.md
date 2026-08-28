@@ -4,7 +4,7 @@
 
 <div style="text-align: center">
   <p align="center">
-  <img src="https://github.com/dqzboy/Docker-Proxy/assets/42825450/c187d66f-152e-4172-8268-e54bd77d48bb" width="230px" height="200px">
+  <img src="./hubcmdui/src/public/images/docker-proxy.svg" width="200px" height="200px" alt="Docker Proxy Logo">
       <br>
       <i>Self-hosted Docker image acceleration service — one-click deployment of image acceleration & management for Docker, K8s, Quay, GHCR, MCR, Elastic, NVCR, and more.</i>
   </p>
@@ -141,68 +141,44 @@ The config file is mounted on the host at `./config/go-proxy/` (inside the conta
 ## 💌 Promotion
 
 <table>
-  <thead>
-    <tr>
-      <th width="50%" align="center">Description</th>
-      <th width="50%" align="center">Overview</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU" target="_blank">AIHUB acts as a transit hub, aggregating and continuously monitoring data from over a dozen sources.This ensures that everyone can access tokens that are both affordable and relatively stable.</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="aihub" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">Fast, reliable, and secure web hosting services to meet all your business needs.99.9% uptime guarantee.</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="dedione" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/dedirock.html" target="_blank">DediRock offers annual‑plan VPS servers in Los Angeles and New York, featuring budget‑friendly deals, storage‑optimized options, and high‑performance NVMe solutions—ideal for Docker containers, website hosting, development and testing, as well as backup nodes.</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/dedirock.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="dedirock" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/racknerd.html" target="_blank">Multiple data centers are available in the United States, suitable for deploying Docker-Proxy, personal projects, and lightweight production services.</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/racknerd.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/Image_2025-07-07_16-14-49.png?raw=true" alt="RackNerd" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/cloudcone.html" target="_blank">CloudCone provides flexible cloud server plans with pay-as-you-go billing, suitable for both individual and enterprise users.</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/cloudcone.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/111.png?raw=true" alt="CloudCone" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-  </tbody>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="AIHUB" width="280" height="158"><br><strong>AIHUB</strong></a><br>
+      <sub>Reliable and affordable AI API relay service</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/dedione.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="DediOne" width="280" height="158"><br><strong>DediOne</strong></a><br>
+      <sub>Fast and reliable web hosting services</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/dedirock.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="DediRock" width="280" height="158"><br><strong>DediRock</strong></a><br>
+      <sub>Cost-effective VPS across multiple U.S. data centers</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/racknerd.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/Image_2025-07-07_16-14-49.png?raw=true" alt="RackNerd" width="280" height="158"><br><strong>RackNerd</strong></a><br>
+      <sub>Overseas VPS for websites and Docker services</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/cloudcone.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/111.png?raw=true" alt="CloudCone" width="280" height="158"><br><strong>CloudCone</strong></a><br>
+      <sub>Flexible pay-as-you-go cloud servers</sub>
+    </td>
+    <td width="50%"><!-- New promotion slot --></td>
+  </tr>
 </table>
 
-##### *Telegram Bot: [Click to contact](https://t.me/RelayHubBot) ｜ E-Mail: support@dqzboy.com*
-**We only accept merchants with long-term stable operations and good reputation.**
+---
+
+<p align="center">
+  <strong>Promotion Partnerships</strong><br>
+  We only accept reputable providers with stable, long-term operations<br>
+  <a href="https://t.me/RelayHubBot">Telegram</a> · <a href="mailto:support@dqzboy.com">support@dqzboy.com</a>
+</p>
+
+---
 
 ## 🤝 Contributing
 

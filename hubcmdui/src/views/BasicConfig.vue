@@ -37,6 +37,32 @@
       </el-form>
     </el-card>
 
+    <!-- ============ 前台展示开关 ============ -->
+    <el-card shadow="never" class="section-card">
+      <div class="section-head">
+        <div class="section-icon icon-landing">
+          <el-icon><View /></el-icon>
+        </div>
+        <div style="flex: 1;">
+          <div class="section-title">{{ t('basic.landingSectionTitle') }}</div>
+          <div class="muted">{{ t('basic.landingSectionDesc') }}</div>
+        </div>
+      </div>
+
+      <div class="landing-row">
+        <div class="landing-info">
+          <div class="landing-name">{{ t('basic.landingSwitchLabel') }}</div>
+          <div class="landing-desc">{{ t('basic.landingSwitchDesc') }}</div>
+        </div>
+        <el-switch
+          v-model="landingVisible"
+          :loading="loadingLanding"
+          active-color="#22c55e"
+          @change="onToggleLanding"
+        />
+      </div>
+    </el-card>
+
     <!-- ============ Registry 平台配置 ============ -->
     <el-card shadow="never" class="section-card">
       <div class="section-head">
@@ -128,12 +154,14 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Picture, Check, Box, Files } from '@element-plus/icons-vue'
+import { Picture, Check, Box, Files, View } from '@element-plus/icons-vue'
 import {
   getConfig,
   saveConfig,
   getRegistryConfigs,
-  updateRegistryConfig
+  updateRegistryConfig,
+  getLandingVisible,
+  setLandingVisible
 } from '../services'
 
 const { t } = useI18n()
@@ -142,7 +170,34 @@ const logoForm = ref({ logoUrl: '' })
 const registries = ref([])
 const loadingReg = ref(false)
 const loadingLogo = ref(false)
+const loadingLanding = ref(false)
 const savingId = ref(null)
+
+// 前台落地页展示开关：默认开启；初次加载失败按"开启"展示开关，避免管理员误以为坏了。
+const landingVisible = ref(true)
+async function loadLandingVisible() {
+  try {
+    const r = await getLandingVisible()
+    landingVisible.value = !!(r && r.visible)
+  } catch {
+    landingVisible.value = true
+  }
+}
+
+async function onToggleLanding(val) {
+  // 乐观更新：UI 立即反映新值；保存失败时回滚。
+  const prev = !val
+  loadingLanding.value = true
+  try {
+    await setLandingVisible(val)
+    ElMessage.success(t(val ? 'basic.landingEnabledToast' : 'basic.landingDisabledToast'))
+  } catch (e) {
+    landingVisible.value = prev
+    ElMessage.error(t('basic.saveFailed', { msg: e.response?.data?.error || e.message }))
+  } finally {
+    loadingLanding.value = false
+  }
+}
 
 async function loadLogo() {
   try {
@@ -235,6 +290,7 @@ async function onSaveOne(r) {
 onMounted(() => {
   loadLogo()
   loadRegistries()
+  loadLandingVisible()
 })
 </script>
 
@@ -250,6 +306,29 @@ onMounted(() => {
 .section-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; flex-shrink: 0; }
 .icon-logo { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
 .icon-reg { background: linear-gradient(135deg, #06b6d4, #3b82f6); }
+.icon-landing { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+
+/* ============== 前台展示开关行 ============== */
+.landing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 2px;
+}
+.landing-info { flex: 1; min-width: 0; }
+.landing-name {
+  font-size: 14px;
+  color: var(--fg);
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+.landing-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
 .section-title { font-size: 16px; font-weight: 600; color: var(--fg); }
 
 .logo-form { max-width: 720px; }

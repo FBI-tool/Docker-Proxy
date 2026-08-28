@@ -26,7 +26,11 @@ cat << EOF
 EOF
 
 echo "----------------------------------------------------------------------------------------------------------"
-echo -e "\033[32mVPS 推荐\033[0m(\033[34mRackNerd 高性价比便宜VPS\033[0m)：\033[34;4m https://dqzboy.github.io/proxyui/racknerd \033[0m"
+echo -e "\033[32mVPS / 主机推荐\033[0m"
+echo -e "\033[34mDediOne   - 快速可靠的网站托管服务：       \033[34;4mhttps://docker-proxy-desc.vercel.app/dedione.html\033[0m"
+echo -e "\033[34mDediRock  - 美国多机房高性价比 VPS：       \033[34;4mhttps://docker-proxy-desc.vercel.app/dedirock.html\033[0m"
+echo -e "\033[34mRackNerd  - 高性价比服务的海外 VPS：       \033[34;4mhttps://docker-proxy-desc.vercel.app/racknerd.html\033[0m"
+echo -e "\033[34mCloudCone - 灵活按需付费的云服务器：       \033[34;4mhttps://docker-proxy-desc.vercel.app/cloudcone.html\033[0m"
 echo "----------------------------------------------------------------------------------------------------------"
 echo
 echo
@@ -2009,7 +2013,11 @@ INFO "合作联系: https://t.me/RelayHubBot"
 INFO
 INFO "若用云服务器并设域名及证书，需在安全组开放80、443端口；否则开放对应服务监听端口"
 INFO
-INFO "VPS推荐(AFF): https://dqzboy.github.io/proxyui/racknerd"
+INFO "VPS / 主机推荐(AFF):"
+INFO "DediOne:   https://docker-proxy-desc.vercel.app/dedione.html"
+INFO "DediRock:  https://docker-proxy-desc.vercel.app/dedirock.html"
+INFO "RackNerd:  https://docker-proxy-desc.vercel.app/racknerd.html"
+INFO "CloudCone: https://docker-proxy-desc.vercel.app/cloudcone.html"
 INFO
 INFO "================================================================"
 }

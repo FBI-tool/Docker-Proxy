@@ -1,5 +1,8 @@
 <template>
-  <div class="landing">
+  <!-- 关闭态：完全空白，不展示任何内容（连顶栏语言切换也不保留） -->
+  <div v-if="landingVisible === false" class="landing-closed-empty"></div>
+  <!-- 开启态：完整落地页；loading 态(null)Vue 自动不渲染任何分支，避免内容闪烁 -->
+  <div v-else-if="landingVisible === true" class="landing">
     <div class="topbar-float">
       <LangSwitch variant="nav" />
       <div class="theme-toggle-wrap">
@@ -569,7 +572,8 @@ import {
   getImageTags,
   getPublishedDocs,
   getPublicDoc,
-  getSiteInfo
+  getSiteInfo,
+  getLandingVisible
 } from '../services'
 import { getMenuIconSvg as getMenuIconSvgFromLib } from '../lib/menuIcons'
 import LangSwitch from '../components/LangSwitch.vue'
@@ -597,7 +601,7 @@ function pickTheme(m) {
 }
 
 const year = new Date().getFullYear()
-const defaultLogo = 'https://cdn.jsdelivr.net/gh/dqzboy/Blog-Image/BlogCourse/docker-proxy.png'
+const defaultLogo = '/images/docker-proxy.svg'
 const logoUrl = ref(defaultLogo)
 
 const tabs = computed(() => [
@@ -1385,6 +1389,21 @@ async function loadSite() {
   }
 }
 
+// 前台落地页（/）展示开关：
+//  - 初始值为 null（未加载），template 用三态 v-if 控制渲染：null=不渲染任何分支（避免内容闪烁）、
+//    true=完整落地页、false=完全空白（不展示任何内容，连语言切换也不保留）。
+//  - API 请求在 setup 顶层立即发起（不等 onMounted），最大化压缩可见窗口；
+//    失败按"开启"处理（fail-open），与后端默认保持一致。
+const landingVisible = ref(null)
+;(async () => {
+  try {
+    const r = await getLandingVisible()
+    landingVisible.value = !!(r && r.visible)
+  } catch {
+    landingVisible.value = true
+  }
+})()
+
 function goAdmin() {
   router.push('/admin/login')
 }
@@ -1544,11 +1563,10 @@ onUnmounted(() => {
 }
 .hd-logo:hover { background: rgba(61, 124, 244, 0.08); }
 .hd-logo-img {
-  height: 40px;
+  height: 28px;
   width: auto;
+  max-width: 210px;
   display: block;
-  border-radius: 9px;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.10);
 }
 .hd-logo-text { display: none; }
 
@@ -3254,4 +3272,13 @@ onUnmounted(() => {
 :root.dark .landing .result-description code { background: #172033; color: #fca5a5; border-color: #334155; }
 :root.dark .landing .result-description strong { color: #f1f5f9; }
 :root.dark .landing .result-description .desc-empty { color: #94a3b8; }
+
+/* ============== 前台被后台关闭后：完全空白容器（保持主题背景色，不展示任何内容） ============== */
+.landing-closed-empty {
+  min-height: 100vh;
+  background: #f7f9fc;
+}
+:root.dark .landing-closed-empty {
+  background: #0b1220;
+}
 </style>

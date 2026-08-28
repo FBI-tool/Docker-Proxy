@@ -103,8 +103,9 @@
           <el-input v-model="form.title" :placeholder="t('documents.titlePlaceholder')" maxlength="80" show-word-limit />
         </el-form-item>
         <el-form-item :label="t('documents.content')">
-          <div class="md-wrap">
+          <div class="md-wrap" v-loading="editorLoading">
             <MdEditor
+              v-if="dialogVisible"
               v-model="form.content"
               :theme="editorTheme"
               :preview="previewMode"
@@ -134,16 +135,37 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Document, Promotion, EditPen, Search, Refresh } from '@element-plus/icons-vue'
-import { MdEditor } from 'md-editor-v3'
-import 'md-editor-v3/lib/style.css'
 import { listDocuments, getDocument, createDocument, saveDocument, deleteDocument, togglePublish } from '../services'
 import { useTheme } from '../composables/useTheme'
 
 const { t } = useI18n()
+
+// 编辑器体积较大，仅在打开新建/编辑弹窗时加载，避免首次进入文档管理时长时间无响应。
+const editorLoading = ref(false)
+let editorPromise
+function loadEditor() {
+  if (!editorPromise) {
+    editorLoading.value = true
+    editorPromise = Promise.all([
+      import('md-editor-v3'),
+      import('md-editor-v3/lib/style.css')
+    ])
+      .then(([module]) => module.MdEditor)
+      .catch((error) => {
+        editorPromise = null
+        throw error
+      })
+      .finally(() => {
+        editorLoading.value = false
+      })
+  }
+  return editorPromise
+}
+const MdEditor = defineAsyncComponent(loadEditor)
 
 const docs = ref([])
 const loading = ref(false)
@@ -253,7 +275,7 @@ onMounted(load)
 :deep(.el-input__inner) { color: var(--fg); }
 
 .doc-form :deep(.el-dialog__body) { padding: 16px 20px; }
-.md-wrap { width: 100%; }
+.md-wrap { width: 100%; min-height: 56vh; }
 .dlg-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 
 /* 适配浅色：编辑器外层 */

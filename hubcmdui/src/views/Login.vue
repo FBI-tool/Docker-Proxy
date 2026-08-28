@@ -9,9 +9,9 @@
       <div class="login-card-head">
         <LangSwitch variant="icon" />
       </div>
-      <!-- 品牌区：使用项目官方 logo 图片 -->
+      <!-- 品牌区：使用无文字项目图标 -->
       <div class="brand">
-        <img class="brand-logo" src="/images/docker-proxy.png" :alt="t('layout.brandName')" />
+        <img class="brand-logo" src="/images/docker-proxy.svg" :alt="t('layout.brandName')" />
         <h1 class="brand-title">HubCmdUI</h1>
         <p class="brand-sub">{{ t('login.brandSub') }}</p>
       </div>
@@ -290,10 +290,10 @@ onMounted(async () => {
   text-align: center;
 }
 .brand-logo {
-  height: 64px;
+  height: 72px;
+  max-width: min(300px, 86%);
   width: auto;
   object-fit: contain;
-  filter: drop-shadow(0 6px 14px rgba(0, 80, 200, 0.18));
 }
 .brand-title {
   font-size: 24px;

@@ -4,7 +4,7 @@
 
 <div style="text-align: center">
   <p align="center">
-  <img src="https://github.com/dqzboy/Docker-Proxy/assets/42825450/c187d66f-152e-4172-8268-e54bd77d48bb" width="230px" height="200px">
+  <img src="./hubcmdui/src/public/images/docker-proxy.svg" width="200px" height="200px" alt="Docker Proxy Logo">
       <br>
       <i>自建Docker镜像加速服务，一键部署Docker、K8s、Quay、Ghcr、Mcr、elastic、nvcr等镜像加速\管理服务.</i>
   </p>
@@ -141,68 +141,44 @@ bash -c "$(curl -fsSL https://ghp.ci/https://raw.githubusercontent.com/dqzboy/Do
 ## 💌 推广
 
 <table>
-  <thead>
-    <tr>
-      <th width="50%" align="center">描述信息</th>
-      <th width="50%" align="center">图文介绍</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU" target="_blank">AIHUB中转，聚合十几家源头持续监控。让大家用上便宜且相对稳定的 Token。</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="aihub" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">快速、可靠、安全的网站托管服务，满足您的所有业务需求。· 24小时退款保证 · 高性能服务器 · 99.9%正常运行时间保证。</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/dedione.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="dedione" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/dedirock.html" target="_blank">DediRock 美国洛杉矶与纽约机房年付 VPS，覆盖低价特惠、存储型与高性能 NVMe 方案，适合 Docker、建站、开发测试与备份节点。</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/dedirock.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="dedirock" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/racknerd.html" target="_blank">提供高性价比的海外VPS，支持多种操作系统，适合搭建Docker代理服务。</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/racknerd.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/Image_2025-07-07_16-14-49.png?raw=true" alt="RackNerd" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <td width="50%" align="left">
-        <a href="https://docker-proxy-desc.vercel.app/cloudcone.html" target="_blank">CloudCone 提供灵活的云服务器方案，支持按需付费，适合个人和企业用户。</a>
-      </td>
-      <td width="50%" align="center">
-        <a href="https://docker-proxy-desc.vercel.app/cloudcone.html" target="_blank">
-          <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/111.png?raw=true" alt="CloudCone" width="200" height="150">
-        </a>
-      </td>
-    </tr>
-  </tbody>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://aihub.top/register?aff=RXYDWRNDZ4AU"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/AIHUB.png?raw=true" alt="AIHUB" width="280" height="158"><br><strong>AIHUB</strong></a><br>
+      <sub>稳定实惠的 AI API 中转服务</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/dedione.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediOne.png?raw=true" alt="DediOne" width="280" height="158"><br><strong>DediOne</strong></a><br>
+      <sub>快速可靠的网站托管服务</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/dedirock.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/DediRock.png?raw=true" alt="DediRock" width="280" height="158"><br><strong>DediRock</strong></a><br>
+      <sub>美国多机房高性价比 VPS</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/racknerd.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/Image_2025-07-07_16-14-49.png?raw=true" alt="RackNerd" width="280" height="158"><br><strong>RackNerd</strong></a><br>
+      <sub>适合建站和 Docker服务的海外 VPS</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://docker-proxy-desc.vercel.app/cloudcone.html"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/111.png?raw=true" alt="CloudCone" width="280" height="158"><br><strong>CloudCone</strong></a><br>
+      <sub>灵活按需付费的云服务器</sub>
+    </td>
+    <td width="50%"><!-- 新推广位 --></td>
+  </tr>
 </table>
 
-##### *Telegram Bot: [点击联系](https://t.me/RelayHubBot) ｜ E-Mail: support@dqzboy.com*
-**仅接受长期稳定运营，信誉良好的商家*
+---
+
+<p align="center">
+  <strong>推广合作</strong><br>
+  仅接受长期稳定运营、信誉良好的商家<br>
+  <a href="https://t.me/RelayHubBot">Telegram</a> · <a href="mailto:support@dqzboy.com">support@dqzboy.com</a>
+</p>
+
+---
 
 ## 🤝 参与贡献
 
