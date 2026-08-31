@@ -45,6 +45,15 @@ router.put('/config', requireLogin, async (req, res) => {
 router.post('/reload', requireLogin, async (req, res) => {
   try {
     const result = await goProxyService.reload();
+    // 重新加载后重新读取一次当前配置，确保手工修改 config.yaml 后内部凭证表同步更新。
+    try {
+      const cfg = typeof goProxyService.getConfigWithSecrets === 'function'
+        ? await goProxyService.getConfigWithSecrets()
+        : await goProxyService.getConfig();
+      await registryCredentialService.syncFromGoProxyConfig(cfg);
+    } catch (syncErr) {
+      logger.warn('重载后同步 Registry 凭证失败:', syncErr.message);
+    }
     res.json(result);
   } catch (e) {
     logger.error('重载 Go 代理配置失败:', e.message);

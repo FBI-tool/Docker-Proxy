@@ -38,11 +38,13 @@ services:
       # 真实宿主机名
       - HOST_NAME=${HOST_NAME:-}
       - SECURE_COOKIE=false
-      # HTTP代理配置（按需开启）
-      # - HTTP_PROXY=http://proxy.example.com:8080
-      # - HTTPS_PROXY=https://proxy.example.com:8080
+      # HTTP 代理配置：前台镜像搜索由 hubcmd-ui 直接访问 Docker Hub/GitHub/Quay 等 API，
+      # 受限网络中必须把代理环境变量传给 hubcmd-ui。HTTPS_PROXY 也通常填写 http:// 代理地址
+      # （HTTP CONNECT），不要误写成 https://，除非代理端口本身启用了 TLS。
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
       # Docker 内部服务名必须绕过出口代理，否则 hubcmd-ui 访问 go-proxy 管理端口可能被误转发。
-      # - NO_PROXY=localhost,127.0.0.1,::1,go-proxy,reg-go-proxy,hubcmd-ui,.local
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1,go-proxy,reg-go-proxy,hubcmd-ui,.local}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # SQLite 数据库文件

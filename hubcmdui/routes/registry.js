@@ -138,7 +138,7 @@ router.get('/search-all', async (req, res) => {
 router.get('/tags/:registryId', async (req, res) => {
     try {
         const { registryId } = req.params;
-        const { name, page = 1, limit = 100 } = req.query;
+        const { name, page = 1, limit = 100, sourceRepository = '' } = req.query;
         
         if (!name) {
             return res.status(400).json({ 
@@ -153,7 +153,8 @@ router.get('/tags/:registryId', async (req, res) => {
             registryId,
             name,
             parseInt(page),
-            parseInt(limit)
+            parseInt(limit),
+            sourceRepository
         );
         
         res.json({
@@ -164,7 +165,8 @@ router.get('/tags/:registryId', async (req, res) => {
         logger.error(`获取镜像标签失败 (${req.params.registryId}):`, err.message);
         // 透传更具体的业务错误（如「需要登录认证」），让前端给出明确提示而非笼统报错
         const isAuthErr = err.message && err.message.includes('需要登录');
-        res.status(isAuthErr ? 403 : 500).json({
+        const status = isAuthErr ? 403 : (err.statusCode || err.response?.status || 500);
+        res.status(status).json({
             success: false,
             error: err.message || '获取镜像标签失败',
             details: err.message
@@ -182,7 +184,7 @@ router.get('/tags/:registryId', async (req, res) => {
 router.get('/tag-count/:registryId', async (req, res) => {
     try {
         const { registryId } = req.params;
-        const { name } = req.query;
+        const { name, sourceRepository = '' } = req.query;
         
         if (!name) {
             return res.status(400).json({ 
@@ -198,7 +200,8 @@ router.get('/tag-count/:registryId', async (req, res) => {
             registryId,
             name,
             1,
-            1
+            1,
+            sourceRepository
         );
         
         res.json({

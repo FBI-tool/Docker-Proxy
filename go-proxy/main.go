@@ -99,18 +99,24 @@ func main() {
 	}
 }
 
-// handleAdminConfig implements GET (return current config, passwords masked) and
+// handleAdminConfig implements GET (return current config, passwords masked by default) and
 // PUT (replace config: validate, write YAML, hot-reload).
+// The internal hubcmd-ui credential synchronizer may request include_secrets=1.
+// This endpoint is only served on the private admin listener and still requires
+// GO_PROXY_ADMIN_TOKEN, so secrets are not exposed through the public registry listener.
 func handleAdminConfig(w http.ResponseWriter, r *http.Request, proxy *Proxy, configPath, adminToken string) {
 	switch r.Method {
 	case http.MethodGet:
 		proxy.routeMux.RLock()
 		out := *proxy.cfg
 		proxy.routeMux.RUnlock()
-		// Mask passwords so they never leave the server.
-		for i := range out.Registries {
-			if out.Registries[i].Auth.Password != "" {
-				out.Registries[i].Auth.Password = adminPasswordSentinel
+		// Passwords are masked for the normal UI config view. The private
+		// hubcmd-ui synchronizer can explicitly request the real values.
+		if r.URL.Query().Get("include_secrets") != "1" {
+			for i := range out.Registries {
+				if out.Registries[i].Auth.Password != "" {
+					out.Registries[i].Auth.Password = adminPasswordSentinel
+				}
 			}
 		}
 		writeJSON(w, http.StatusOK, out)

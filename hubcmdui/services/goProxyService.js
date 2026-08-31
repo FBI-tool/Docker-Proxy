@@ -48,6 +48,19 @@ class GoProxyService {
   }
 
   /**
+   * 获取当前代理配置（包含认证凭证）。
+   * 仅供 hubcmd-ui 内部同步 Registry 凭证使用；Go 端管理 API 仍要求
+   * X-Admin-Token，普通 getConfig() 继续返回脱敏密码。
+   */
+  async getConfigWithSecrets() {
+    const { data } = await axios.get(`${ADMIN_BASE}/-/config?include_secrets=1`, adminRequestOptions({
+      headers: adminHeaders(),
+      timeout: 8000
+    }));
+    return data;
+  }
+
+  /**
    * 全量替换代理配置（写盘 + 热重载）
    */
   async putConfig(cfg) {
