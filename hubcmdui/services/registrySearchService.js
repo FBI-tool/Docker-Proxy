@@ -26,37 +26,135 @@ const OCI_MANIFEST_ACCEPT = [
   'application/vnd.docker.distribution.manifest.v1+json'
 ].join(', ');
 
-const OCI_TAG_LIST_PAGE_SIZE = Number(process.env.REGISTRY_TAG_LIST_PAGE_SIZE || 100);
-const MAX_OCI_TAGS = Number(process.env.REGISTRY_TAGS_MAX || 5000);
-const OCI_TAG_CACHE_TTL_MS = Number(process.env.REGISTRY_TAG_CACHE_TTL_MS || 30 * 60 * 1000);
-const OCI_METADATA_CONCURRENCY = Number(process.env.REGISTRY_TAG_METADATA_CONCURRENCY || 8);
+function parsePositiveIntEnv(name, fallback, minimum = 1) {
+  const parsed = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
+}
+
+const OCI_TAG_LIST_PAGE_SIZE = parsePositiveIntEnv('REGISTRY_TAG_LIST_PAGE_SIZE', 100);
+const MAX_OCI_TAGS = parsePositiveIntEnv('REGISTRY_TAGS_MAX', 5000);
+const OCI_TAG_CACHE_TTL_MS = parsePositiveIntEnv(
+  'REGISTRY_TAG_CACHE_TTL_MS',
+  30 * 60 * 1000
+);
+const OCI_METADATA_CONCURRENCY = parsePositiveIntEnv(
+  'REGISTRY_TAG_METADATA_CONCURRENCY',
+  8
+);
+// Keep all registry search/tag caches bounded. A tag list can contain thousands
+// of strings, so an unbounded Map would retain one large value for every unique
+// query/image until the process restarts.
+const REGISTRY_CACHE_MAX_ENTRIES = parsePositiveIntEnv(
+  'REGISTRY_CACHE_MAX_ENTRIES',
+  512
+);
+const REGISTRY_TOKEN_CACHE_MAX_ENTRIES = parsePositiveIntEnv(
+  'REGISTRY_TOKEN_CACHE_MAX_ENTRIES',
+  256
+);
+const REGISTRY_CACHE_CLEANUP_INTERVAL_MS = parsePositiveIntEnv(
+  'REGISTRY_CACHE_CLEANUP_INTERVAL_MS',
+  60 * 1000
+);
 const TOKEN_CACHE_SKEW_MS = 30 * 1000;
 const FULL_METADATA_SORT_REGISTRIES = new Set(['ghcr']);
 const INCLUDE_DIGEST_LIKE_TAGS = process.env.REGISTRY_INCLUDE_DIGEST_TAGS === 'true';
 const INCLUDE_QUAY_ARTIFACT_TAGS = process.env.REGISTRY_INCLUDE_QUAY_ARTIFACT_TAGS === 'true';
 
-const cacheStore = new Map();
-const tokenCache = new Map();
-const credentialRefreshThrottle = new Map();
-const GITHUB_PACKAGE_CACHE_TTL_MS = Number(process.env.GITHUB_PACKAGE_CACHE_TTL_MS || 30 * 60 * 1000);
+/**
+ * Small TTL-aware LRU cache.
+ *
+ * Map preserves insertion order, so deleting and re-inserting a hit moves it
+ * to the MRU end. This gives us both bounded growth and cheap eviction without
+ * adding another dependency to the UI image.
+ */
+class TtlLruCache {
+  constructor(maxEntries) {
+    this.maxEntries = maxEntries;
+    this.store = new Map();
+  }
+
+  get(key) {
+    const hit = this.store.get(key);
+    if (!hit) return undefined;
+    if (hit.expiresAt <= Date.now()) {
+      this.store.delete(key);
+      return undefined;
+    }
+
+    // Mark the entry as recently used.
+    this.store.delete(key);
+    this.store.set(key, hit);
+    return hit.value;
+  }
+
+  set(key, value, ttlMs) {
+    const ttl = Number(ttlMs);
+    if (!Number.isFinite(ttl) || ttl <= 0) return value;
+
+    // Re-inserting an existing key must also refresh its LRU position.
+    this.store.delete(key);
+    this.store.set(key, {
+      value,
+      expiresAt: Date.now() + ttl
+    });
+    this.evictOverflow();
+    return value;
+  }
+
+  delete(key) {
+    return this.store.delete(key);
+  }
+
+  clear() {
+    this.store.clear();
+  }
+
+  cleanup(now = Date.now()) {
+    for (const [key, hit] of this.store) {
+      if (hit.expiresAt <= now) this.store.delete(key);
+    }
+    this.evictOverflow();
+  }
+
+  evictOverflow() {
+    while (this.store.size > this.maxEntries) {
+      const oldestKey = this.store.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.store.delete(oldestKey);
+    }
+  }
+
+  get size() {
+    return this.store.size;
+  }
+}
+
+const cacheStore = new TtlLruCache(REGISTRY_CACHE_MAX_ENTRIES);
+const tokenCache = new TtlLruCache(REGISTRY_TOKEN_CACHE_MAX_ENTRIES);
+const credentialRefreshThrottle = new TtlLruCache(REGISTRY_TOKEN_CACHE_MAX_ENTRIES);
+const GITHUB_PACKAGE_CACHE_TTL_MS = parsePositiveIntEnv(
+  'GITHUB_PACKAGE_CACHE_TTL_MS',
+  30 * 60 * 1000
+);
 
 function getCache(key) {
-  const hit = cacheStore.get(key);
-  if (!hit) return null;
-  if (hit.expiresAt <= Date.now()) {
-    cacheStore.delete(key);
-    return null;
-  }
-  return hit.value;
+  const value = cacheStore.get(key);
+  return value === undefined ? null : value;
 }
 
 function setCache(key, value, ttlMs = OCI_TAG_CACHE_TTL_MS) {
-  cacheStore.set(key, {
-    value,
-    expiresAt: Date.now() + ttlMs
-  });
-  return value;
+  return cacheStore.set(key, value, ttlMs);
 }
+
+// Expiry is normally checked lazily on reads, but a periodic sweep releases
+// expired arrays/tokens even when a cache key is never requested again.
+const cacheCleanupTimer = setInterval(() => {
+  cacheStore.cleanup();
+  tokenCache.cleanup();
+  credentialRefreshThrottle.cleanup();
+}, REGISTRY_CACHE_CLEANUP_INTERVAL_MS);
+cacheCleanupTimer.unref?.();
 
 /**
  * 将官方镜像（isOfficial === true）稳定地排到结果列表最前面，组内保持原有相对顺序。
@@ -559,22 +657,16 @@ function tokenCacheKey(registryId, realm, service, scope, cred) {
 }
 
 function getCachedToken(key) {
-  const hit = tokenCache.get(key);
-  if (!hit) return '';
-  if (hit.expiresAt <= Date.now()) {
-    tokenCache.delete(key);
-    return '';
-  }
-  return hit.token;
+  return tokenCache.get(key)?.token || '';
 }
 
 function setCachedToken(key, token, expiresInSeconds = 300) {
   if (!token) return;
   const ttl = Math.max(30, Number(expiresInSeconds) || 300) * 1000;
-  tokenCache.set(key, {
-    token,
-    expiresAt: Date.now() + ttl - TOKEN_CACHE_SKEW_MS
-  });
+  // Keep the existing expiry skew so a token is refreshed before the
+  // upstream invalidates it. The LRU cache still owns the actual expiration
+  // timestamp and periodic cleanup.
+  tokenCache.set(key, { token }, Math.max(1, ttl - TOKEN_CACHE_SKEW_MS));
 }
 
 async function requestBearerToken(registryId, challenge, opts, attempt = 0) {
@@ -1860,7 +1952,7 @@ async function getCredentialForAuth(registryId, options = {}) {
     const last = credentialRefreshThrottle.get(throttleKey) || 0;
     if (options.refresh || !cached) {
       if (options.refresh || now - last > 60 * 1000) {
-        credentialRefreshThrottle.set(throttleKey, now);
+        credentialRefreshThrottle.set(throttleKey, now, 5 * 60 * 1000);
         try {
           const synced = await credService.syncFromLiveGoProxyConfig();
           if (synced > 0 || options.refresh) {

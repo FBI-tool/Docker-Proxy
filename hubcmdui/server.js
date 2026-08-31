@@ -226,7 +226,7 @@ async function startServer() {
       // 启动时从 Go 代理当前配置同步 Registry 凭证。
       // 这样即使用户直接编辑 /data/proxy/config/go-proxy/config.yaml，
       // 只要 hubcmd-ui 重启或首次启动，就能把 ghcr/quay 等受限仓库所需凭证
-      // 同步到内部表供标签查询复用。
+      // 通过加密同步接口写入内部表供标签查询复用。
       try {
         const synced = await registryCredentialService.syncFromLiveGoProxyConfig();
         logger.success(`Registry 凭证同步完成，已同步 ${synced} 条`);

@@ -2,9 +2,10 @@
  * Registry 凭证内部同步模块
  *
  * 设计背景（合并说明）：
- * 「代理管理」(GoProxy) 已支持为每个 registry 配置 token / Basic 认证（用户名/密码），
- * 但其管理端口返回的密码是脱敏的（********），hubcmdui 的搜索/标签服务无法
- * 直接复用。为避免出现「两套独立凭证入口」，本模块不再对外暴露 CRUD，
+ * 「代理管理」(GoProxy) 已支持为每个 registry 配置 token / Basic 认证（用户名/密码）。
+ * 管理端口的普通配置接口始终返回脱敏密码；内部同步接口返回使用管理令牌加密的
+ * payload，hubcmdui 仅在进程内解密后再写入加密凭证表。为避免出现「两套独立凭证入口」，
+ * 本模块不再对外暴露 CRUD，
  * 而是在代理管理保存配置时，由 routes/goProxy.js 调用 syncFromGoProxyConfig，
  * 把其中带用户名与密码的认证同步进内部表；镜像搜索/标签查看的
  * token 流程通过 getPlainCredential 读取。
@@ -150,9 +151,19 @@ async function syncFromGoProxyConfig(cfg) {
 async function syncFromLiveGoProxyConfig() {
   try {
     const { goProxyService } = require('./goProxyService');
-    const cfg = typeof goProxyService.getConfigWithSecrets === 'function'
-      ? await goProxyService.getConfigWithSecrets()
-      : await goProxyService.getConfig();
+    let cfg;
+    try {
+      // 新版 Go 端通过 /-/credentials 返回 AES-GCM 加密 payload，
+      // 不再使用会返回明文密码的 include_secrets=1。
+      cfg = typeof goProxyService.getCredentialSyncConfig === 'function'
+        ? await goProxyService.getCredentialSyncConfig()
+        : await goProxyService.getConfig();
+    } catch (e) {
+      // 兼容尚未升级 Go 端的部署：普通配置接口仍会脱敏，sync 函数
+      // 会保留已有凭证而不会把 ******** 写入数据库。
+      logger.warn(`读取加密 Registry 凭证失败，回退到脱敏配置: ${e.message}`);
+      cfg = await goProxyService.getConfig();
+    }
     return await syncFromGoProxyConfig(cfg);
   } catch (e) {
     logger.warn(`从 Go 代理读取 Registry 凭证失败: ${e.message}`);

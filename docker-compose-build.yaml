@@ -45,6 +45,14 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       # Docker 内部服务名必须绕过出口代理，否则 hubcmd-ui 访问 go-proxy 管理端口可能被误转发。
       - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1,go-proxy,reg-go-proxy,hubcmd-ui,.local}
+      # Registry 标签详情性能参数；留空时使用应用默认值。
+      - REGISTRY_TAG_CACHE_TTL_MS=${REGISTRY_TAG_CACHE_TTL_MS:-}
+      - REGISTRY_TAG_METADATA_CONCURRENCY=${REGISTRY_TAG_METADATA_CONCURRENCY:-}
+      - REGISTRY_TAGS_MAX=${REGISTRY_TAGS_MAX:-}
+      # 防止搜索/标签请求产生无限增长的内存缓存。
+      - REGISTRY_CACHE_MAX_ENTRIES=${REGISTRY_CACHE_MAX_ENTRIES:-}
+      - REGISTRY_TOKEN_CACHE_MAX_ENTRIES=${REGISTRY_TOKEN_CACHE_MAX_ENTRIES:-}
+      - REGISTRY_CACHE_CLEANUP_INTERVAL_MS=${REGISTRY_CACHE_CLEANUP_INTERVAL_MS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # SQLite 数据库文件
