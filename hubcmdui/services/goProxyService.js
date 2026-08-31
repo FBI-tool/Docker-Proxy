@@ -5,6 +5,7 @@
  */
 
 const axios = require('axios');
+const crypto = require('crypto');
 const logger = require('../logger');
 
 // Go 代理管理接口地址（默认指向 go-proxy:5001，docker 网络内可达）
@@ -37,7 +38,7 @@ function adminHeaders() {
 
 class GoProxyService {
   /**
-   * 获取当前代理配置（密码已被 Go 端脱敏为 ********）
+   * 获取当前代理配置（密码始终由 Go 端脱敏为 ********）。
    */
   async getConfig() {
     const { data } = await axios.get(`${ADMIN_BASE}/-/config`, adminRequestOptions({
@@ -45,6 +46,21 @@ class GoProxyService {
       timeout: 8000
     }));
     return data;
+  }
+
+  /**
+   * 获取供内部凭证同步使用的配置。
+   *
+   * Go 端不会通过 HTTP 返回明文密码，而是使用同一个管理令牌派生
+   * AES-256-GCM 密钥后返回加密 payload。明文只在本进程解密并立即交给
+   * registryCredentialService 加密落库。
+   */
+  async getCredentialSyncConfig() {
+    const { data } = await axios.get(`${ADMIN_BASE}/-/credentials`, adminRequestOptions({
+      headers: adminHeaders(),
+      timeout: 8000
+    }));
+    return decryptCredentialSyncPayload(data);
   }
 
   /**
@@ -94,6 +110,41 @@ class GoProxyService {
   }
 }
 
+function decryptCredentialSyncPayload(response) {
+  if (!response || response.algorithm !== 'AES-256-GCM' || !response.payload) {
+    throw new Error('Go 代理返回的凭证同步数据格式无效');
+  }
+  if (!ADMIN_TOKEN) {
+    throw new Error('GO_PROXY_ADMIN_TOKEN 未配置，无法解密凭证同步数据');
+  }
+
+  const encoded = Buffer.from(String(response.payload), 'base64');
+  const nonceLength = 12;
+  const authTagLength = 16;
+  if (encoded.length <= nonceLength + authTagLength) {
+    throw new Error('Go 代理返回的凭证同步数据不完整');
+  }
+
+  const nonce = encoded.subarray(0, nonceLength);
+  const encrypted = encoded.subarray(nonceLength, -authTagLength);
+  const authTag = encoded.subarray(-authTagLength);
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    crypto.createHash('sha256').update(ADMIN_TOKEN, 'utf8').digest(),
+    nonce
+  );
+  decipher.setAuthTag(authTag);
+  const plaintext = Buffer.concat([
+    decipher.update(encrypted),
+    decipher.final()
+  ]).toString('utf8');
+  const config = JSON.parse(plaintext);
+  if (!config || !Array.isArray(config.registries)) {
+    throw new Error('Go 代理返回的凭证同步配置格式无效');
+  }
+  return config;
+}
+
 // 把 axios 错误转换成可返回给前端的错误体，并附带当前 admin 地址
 function upstreamError(e) {
   const adminUrl = ADMIN_BASE;
@@ -121,5 +172,6 @@ function upstreamError(e) {
 module.exports = {
   goProxyService: new GoProxyService(),
   upstreamError,
-  ADMIN_BASE
+  ADMIN_BASE,
+  decryptCredentialSyncPayload
 };

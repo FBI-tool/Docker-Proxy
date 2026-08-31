@@ -18,6 +18,7 @@ const compatibilityLayer = require('./compatibility-layer');
 const { initializeDatabase } = require('./scripts/init-database');
 const database = require('./database/database');
 const httpProxyService = require('./services/httpProxyService');
+const registryCredentialService = require('./services/registryCredentialService');
 
 // 设置日志级别 (默认INFO, 可通过环境变量设置)
 const logLevel = process.env.LOG_LEVEL || 'WARN';
@@ -220,6 +221,17 @@ async function startServer() {
         logger.info('系统配置初始化完成');
       } catch (initError) {
         logger.warn('系统配置初始化遇到问题:', initError.message);
+      }
+
+      // 启动时从 Go 代理当前配置同步 Registry 凭证。
+      // 这样即使用户直接编辑 /data/proxy/config/go-proxy/config.yaml，
+      // 只要 hubcmd-ui 重启或首次启动，就能把 ghcr/quay 等受限仓库所需凭证
+      // 通过加密同步接口写入内部表供标签查询复用。
+      try {
+        const synced = await registryCredentialService.syncFromLiveGoProxyConfig();
+        logger.success(`Registry 凭证同步完成，已同步 ${synced} 条`);
+      } catch (credSyncError) {
+        logger.warn('Registry 凭证同步失败:', credSyncError.message);
       }
       
       // 启动资源指标采集器（每 30s 采集 CPU/内存/磁盘使用率并落库，

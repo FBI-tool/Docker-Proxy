@@ -92,10 +92,10 @@ export const searchAllRegistries = (term, page = 1, limit = 10) =>
   api.get('/registry/search-all', { params: { term, page, limit } }).then(r => r.data)
 export const searchRegistry = (registryId, term, page = 1, limit = 25) =>
   api.get(`/registry/search/${registryId}`, { params: { term, page, limit } }).then(r => r.data)
-export const getImageTags = (registryId, name, page = 1, limit = 100) =>
-  api.get(`/registry/tags/${registryId}`, { params: { name, page, limit } }).then(r => r.data)
-export const getTagCount = (registryId, name) =>
-  api.get(`/registry/tag-count/${registryId}`, { params: { name } }).then(r => r.data)
+export const getImageTags = (registryId, name, page = 1, limit = 100, sourceRepository = '') =>
+  api.get(`/registry/tags/${registryId}`, { params: { name, page, limit, sourceRepository } }).then(r => r.data)
+export const getTagCount = (registryId, name, sourceRepository = '') =>
+  api.get(`/registry/tag-count/${registryId}`, { params: { name, sourceRepository } }).then(r => r.data)
 
 // ============ Docker Hub 搜索 ============
 export const searchDockerHub = (term, page = 1, limit = 25) =>

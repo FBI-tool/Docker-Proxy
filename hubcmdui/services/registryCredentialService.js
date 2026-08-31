@@ -2,11 +2,12 @@
  * Registry 凭证内部同步模块
  *
  * 设计背景（合并说明）：
- * 「代理管理」(GoProxy) 已支持为每个 registry 配置 Basic 认证（用户名/密码），
- * 但其管理端口返回的密码是脱敏的（********），hubcmdui 的搜索/标签服务无法
- * 直接复用。为避免出现「两套独立凭证入口」，本模块不再对外暴露 CRUD，
+ * 「代理管理」(GoProxy) 已支持为每个 registry 配置 token / Basic 认证（用户名/密码）。
+ * 管理端口的普通配置接口始终返回脱敏密码；内部同步接口返回使用管理令牌加密的
+ * payload，hubcmdui 仅在进程内解密后再写入加密凭证表。为避免出现「两套独立凭证入口」，
+ * 本模块不再对外暴露 CRUD，
  * 而是在代理管理保存配置时，由 routes/goProxy.js 调用 syncFromGoProxyConfig，
- * 把其中 type=basic 且有用户名的认证「同步」进内部表；镜像搜索/标签查看的
+ * 把其中带用户名与密码的认证同步进内部表；镜像搜索/标签查看的
  * token 流程通过 getPlainCredential 读取。
  *
  * 对外表现：用户只在一个地方（代理管理）配置访问凭证，实际代理拉取与搜索/
@@ -33,6 +34,9 @@ const REGISTRY_HOSTS = {
   'nvcr':       ['nvcr.io']
 };
 
+const SYNCABLE_AUTH_TYPES = new Set(['basic', 'token']);
+const MASKED_PASSWORD_SENTINEL = '********';
+
 function hostOf(url) {
   if (!url) return '';
   try { return new URL(url).host; } catch { return ''; }
@@ -56,31 +60,114 @@ function resolveRegistryId(proxyReg) {
 }
 
 /**
- * 同步代理管理配置中的 Basic 认证到内部凭证表。
- * 全量重建：先清空旧表，再按当前 go-proxy 配置写入所有 type=basic 且有用户名的认证。
+ * 同步代理管理配置中的凭证到内部表。
+ * 全量重建：先清空旧表，再按当前 go-proxy 配置写入所有带用户名与密码的认证。
  * @param {{registries:Array}} cfg go-proxy 配置对象
  */
 async function syncFromGoProxyConfig(cfg) {
   const regs = (cfg && Array.isArray(cfg.registries)) ? cfg.registries : [];
   try {
-    await database.run('DELETE FROM registry_credentials');
     const now = new Date().toISOString();
     let synced = 0;
+    const activeRegistryIds = new Set();
+    const maskedRegistryIds = new Set();
+    const credentials = [];
+
     for (const r of regs) {
       const auth = r.auth || {};
-      if (auth.type !== 'basic' || !auth.username) continue;
+      const authType = String(auth.type || '').toLowerCase();
       const registryId = resolveRegistryId(r);
       if (!registryId) continue;
-      const enc = auth.password ? encrypt(auth.password) : '';
-      await database.run(
-        'INSERT INTO registry_credentials (registry_id, username, password, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        [registryId, auth.username || '', enc, now, now]
-      );
+
+      if (!SYNCABLE_AUTH_TYPES.has(authType) || !auth.username) continue;
+      if (auth.password === MASKED_PASSWORD_SENTINEL) {
+        // 普通 GET /-/config 会脱敏密码。不能把 ******** 写入数据库，
+        // 否则会覆盖真实 PAT；保留已有凭证，等待 secrets 配置接口刷新。
+        maskedRegistryIds.add(registryId);
+        activeRegistryIds.add(registryId);
+        continue;
+      }
+      if (!auth.password) continue;
+
+      credentials.push({
+        registryId,
+        username: auth.username,
+        password: auth.password
+      });
+      activeRegistryIds.add(registryId);
       synced++;
     }
+
+    // 仅在本次配置没有任何脱敏凭证时执行完整清理。
+    // 这样旧版本 Go 端或普通脱敏配置读取失败时，不会误删可用凭证。
+    if (maskedRegistryIds.size === 0) {
+      await database.run('DELETE FROM registry_credentials');
+      for (const credential of credentials) {
+        const enc = encrypt(credential.password);
+        await database.run(
+          'INSERT INTO registry_credentials (registry_id, username, password, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+          [credential.registryId, credential.username, enc, now, now]
+        );
+      }
+    } else {
+      const existingRows = await database.all(
+        'SELECT registry_id FROM registry_credentials'
+      );
+      for (const credential of credentials) {
+        const enc = encrypt(credential.password);
+        const existed = existingRows.some(row => row.registry_id === credential.registryId);
+        if (existed) {
+          await database.run(
+            'UPDATE registry_credentials SET username = ?, password = ?, updated_at = ? WHERE registry_id = ?',
+            [credential.username, enc, now, credential.registryId]
+          );
+        } else {
+          await database.run(
+            'INSERT INTO registry_credentials (registry_id, username, password, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+            [credential.registryId, credential.username, enc, now, now]
+          );
+        }
+      }
+      // 清理明确不再存在、且不属于脱敏 registry 的旧凭证。
+      for (const row of existingRows) {
+        if (!activeRegistryIds.has(row.registry_id)) {
+          await database.run('DELETE FROM registry_credentials WHERE registry_id = ?', [row.registry_id]);
+        }
+      }
+    }
+
     logger.info(`已从代理管理同步 ${synced} 条 Registry 凭证到内部表`);
+    return synced;
   } catch (e) {
     logger.error(`同步 Registry 凭证失败: ${e.message}`);
+    return 0;
+  }
+}
+
+/**
+ * 直接从当前 Go 代理管理端读取配置并同步 Registry 凭证。
+ * 用于启动时/重载后/按需刷新，避免手工修改 config.yaml 后内部凭证表不同步。
+ */
+async function syncFromLiveGoProxyConfig() {
+  try {
+    const { goProxyService } = require('./goProxyService');
+    let cfg;
+    try {
+      // 新版 Go 端通过 /-/credentials 返回 AES-GCM 加密 payload，
+      // 不再使用会返回明文密码的 include_secrets=1。
+      cfg = typeof goProxyService.getCredentialSyncConfig === 'function'
+        ? await goProxyService.getCredentialSyncConfig()
+        : await goProxyService.getConfig();
+    } catch (e) {
+      // 兼容尚未升级 Go 端的部署：普通配置接口仍会脱敏，sync 函数
+      // 会保留已有凭证而不会把 ******** 写入数据库。
+      logger.warn(`读取加密 Registry 凭证失败，回退到脱敏配置: ${e.message}`);
+      cfg = await goProxyService.getConfig();
+    }
+    return await syncFromGoProxyConfig(cfg);
+  } catch (e) {
+    logger.warn(`从 Go 代理读取 Registry 凭证失败: ${e.message}`);
+    return 0;
   }
 }
 
@@ -105,5 +192,6 @@ async function getPlainCredential(registryId) {
 
 module.exports = {
   syncFromGoProxyConfig,
+  syncFromLiveGoProxyConfig,
   getPlainCredential
 };

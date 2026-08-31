@@ -1097,7 +1097,8 @@ async function goSearchPage(p) {
 // （docker-hub / quay 走专用接口；ghcr/gcr/k8s/mcr/elastic/nvcr 走统一的 OCI tags 接口，含 Bearer Token 挑战）
 function canViewTags(r) {
   const id = r.registryId || searchScope.value
-  return ['docker-hub', 'quay', 'ghcr', 'gcr', 'k8s', 'mcr', 'elastic', 'nvcr'].includes(id)
+  return r.tagsAvailable !== false &&
+    ['docker-hub', 'quay', 'ghcr', 'gcr', 'k8s', 'mcr', 'elastic', 'nvcr'].includes(id)
 }
 
 // 使用此镜像：跳到镜像加速页，直接按后台代理地址生成加速命令（不再回环解析）
@@ -1120,6 +1121,7 @@ async function openTags(r) {
   tagView.value = {
     imageName: name,
     registryId: id,
+    sourceRepository: r.sourceRepository || '',
     description: r.description || t('landing.noDescription'),
     stars: r.stars || r.star_count || 0,
     pulls: r.pulls || r.pull_count || 0,
@@ -1141,9 +1143,10 @@ async function loadTagsPage(p) {
   if (!tagView.value) return
   tagView.value = { ...tagView.value, page: p, loading: true, error: '' }
   const id = tagView.value.registryId
-  const name = tagView.value.imageName
+    const name = tagView.value.imageName
+    const sourceRepository = tagView.value.sourceRepository || ''
   try {
-    const data = await getImageTags(id, name, p, TAG_PAGE_SIZE)
+    const data = await getImageTags(id, name, p, TAG_PAGE_SIZE, sourceRepository)
     const tags = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : [])
     const total = data?.count || tags.length
     tagView.value = {
@@ -1195,9 +1198,21 @@ const filteredTags = computed(() => {
 function tagNameOf(t) {
   return typeof t === 'string' ? t : (t.name || t)
 }
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1
+  return `${value.toFixed(digits)} ${units[unitIndex]}`
+}
 function tagSizeOf(t) {
-  if (typeof t === 'object' && t.size) {
-    return Math.round(t.size / 1024 / 1024) + ' MB'
+  if (typeof t === 'object' && Number.isFinite(t.size)) {
+    return formatBytes(t.size)
   }
   return '-'
 }

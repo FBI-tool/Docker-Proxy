@@ -4,6 +4,7 @@
  */
 const axios = require('axios');
 const logger = require('../logger');
+const crypto = require('crypto');
 
 // HTTP 请求配置
 // 不要在这里设置 proxy:false。Node.js 下的 Axios 会根据
@@ -17,6 +18,144 @@ const httpOptions = {
   }
 };
 
+const OCI_MANIFEST_ACCEPT = [
+  'application/vnd.oci.image.index.v1+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json',
+  'application/vnd.oci.image.manifest.v1+json',
+  'application/vnd.docker.distribution.manifest.v2+json',
+  'application/vnd.docker.distribution.manifest.v1+json'
+].join(', ');
+
+function parsePositiveIntEnv(name, fallback, minimum = 1) {
+  const parsed = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
+}
+
+const OCI_TAG_LIST_PAGE_SIZE = parsePositiveIntEnv('REGISTRY_TAG_LIST_PAGE_SIZE', 100);
+const MAX_OCI_TAGS = parsePositiveIntEnv('REGISTRY_TAGS_MAX', 5000);
+const OCI_TAG_CACHE_TTL_MS = parsePositiveIntEnv(
+  'REGISTRY_TAG_CACHE_TTL_MS',
+  30 * 60 * 1000
+);
+const OCI_METADATA_CONCURRENCY = parsePositiveIntEnv(
+  'REGISTRY_TAG_METADATA_CONCURRENCY',
+  8
+);
+// Keep all registry search/tag caches bounded. A tag list can contain thousands
+// of strings, so an unbounded Map would retain one large value for every unique
+// query/image until the process restarts.
+const REGISTRY_CACHE_MAX_ENTRIES = parsePositiveIntEnv(
+  'REGISTRY_CACHE_MAX_ENTRIES',
+  512
+);
+const REGISTRY_TOKEN_CACHE_MAX_ENTRIES = parsePositiveIntEnv(
+  'REGISTRY_TOKEN_CACHE_MAX_ENTRIES',
+  256
+);
+const REGISTRY_CACHE_CLEANUP_INTERVAL_MS = parsePositiveIntEnv(
+  'REGISTRY_CACHE_CLEANUP_INTERVAL_MS',
+  60 * 1000
+);
+const TOKEN_CACHE_SKEW_MS = 30 * 1000;
+const FULL_METADATA_SORT_REGISTRIES = new Set(['ghcr']);
+const INCLUDE_DIGEST_LIKE_TAGS = process.env.REGISTRY_INCLUDE_DIGEST_TAGS === 'true';
+const INCLUDE_QUAY_ARTIFACT_TAGS = process.env.REGISTRY_INCLUDE_QUAY_ARTIFACT_TAGS === 'true';
+
+/**
+ * Small TTL-aware LRU cache.
+ *
+ * Map preserves insertion order, so deleting and re-inserting a hit moves it
+ * to the MRU end. This gives us both bounded growth and cheap eviction without
+ * adding another dependency to the UI image.
+ */
+class TtlLruCache {
+  constructor(maxEntries) {
+    this.maxEntries = maxEntries;
+    this.store = new Map();
+  }
+
+  get(key) {
+    const hit = this.store.get(key);
+    if (!hit) return undefined;
+    if (hit.expiresAt <= Date.now()) {
+      this.store.delete(key);
+      return undefined;
+    }
+
+    // Mark the entry as recently used.
+    this.store.delete(key);
+    this.store.set(key, hit);
+    return hit.value;
+  }
+
+  set(key, value, ttlMs) {
+    const ttl = Number(ttlMs);
+    if (!Number.isFinite(ttl) || ttl <= 0) return value;
+
+    // Re-inserting an existing key must also refresh its LRU position.
+    this.store.delete(key);
+    this.store.set(key, {
+      value,
+      expiresAt: Date.now() + ttl
+    });
+    this.evictOverflow();
+    return value;
+  }
+
+  delete(key) {
+    return this.store.delete(key);
+  }
+
+  clear() {
+    this.store.clear();
+  }
+
+  cleanup(now = Date.now()) {
+    for (const [key, hit] of this.store) {
+      if (hit.expiresAt <= now) this.store.delete(key);
+    }
+    this.evictOverflow();
+  }
+
+  evictOverflow() {
+    while (this.store.size > this.maxEntries) {
+      const oldestKey = this.store.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.store.delete(oldestKey);
+    }
+  }
+
+  get size() {
+    return this.store.size;
+  }
+}
+
+const cacheStore = new TtlLruCache(REGISTRY_CACHE_MAX_ENTRIES);
+const tokenCache = new TtlLruCache(REGISTRY_TOKEN_CACHE_MAX_ENTRIES);
+const credentialRefreshThrottle = new TtlLruCache(REGISTRY_TOKEN_CACHE_MAX_ENTRIES);
+const GITHUB_PACKAGE_CACHE_TTL_MS = parsePositiveIntEnv(
+  'GITHUB_PACKAGE_CACHE_TTL_MS',
+  30 * 60 * 1000
+);
+
+function getCache(key) {
+  const value = cacheStore.get(key);
+  return value === undefined ? null : value;
+}
+
+function setCache(key, value, ttlMs = OCI_TAG_CACHE_TTL_MS) {
+  return cacheStore.set(key, value, ttlMs);
+}
+
+// Expiry is normally checked lazily on reads, but a periodic sweep releases
+// expired arrays/tokens even when a cache key is never requested again.
+const cacheCleanupTimer = setInterval(() => {
+  cacheStore.cleanup();
+  tokenCache.cleanup();
+  credentialRefreshThrottle.cleanup();
+}, REGISTRY_CACHE_CLEANUP_INTERVAL_MS);
+cacheCleanupTimer.unref?.();
+
 /**
  * 将官方镜像（isOfficial === true）稳定地排到结果列表最前面，组内保持原有相对顺序。
  * 满足「官方镜像优先展示」的需求。
@@ -28,6 +167,9 @@ function sortByOfficial(results) {
   return results
     .map((item, idx) => ({ item, idx }))
     .sort((a, b) => {
+      const ae = a.item.isExactMatch ? 1 : 0;
+      const be = b.item.isExactMatch ? 1 : 0;
+      if (be !== ae) return be - ae; // 用户输入的精确镜像优先
       const ao = a.item.isOfficial ? 1 : 0;
       const bo = b.item.isOfficial ? 1 : 0;
       if (bo !== ao) return bo - ao; // 官方(权重 1)排前面
@@ -116,6 +258,796 @@ const REGISTRY_CONFIGS = {
     description: 'NVIDIA GPU 容器镜像仓库'
   }
 };
+
+// 支持精确镜像探测的 Registry。对于没有公开「全文搜索」API 的平台，
+// 用户输入 owner/repo、group/image 或带 registry/tag 的完整引用时，直接用
+// OCI tags/list 验证镜像是否存在，比依赖静态列表更可靠。
+const EXACT_LOOKUP_REGISTRIES = new Set(['ghcr', 'quay', 'gcr', 'k8s', 'mcr', 'elastic', 'nvcr']);
+
+const REGISTRY_HOST_ALIASES = {
+  'docker-hub': ['registry-1.docker.io', 'docker.io', 'index.docker.io'],
+  'ghcr': ['ghcr.io'],
+  'quay': ['quay.io'],
+  'gcr': ['gcr.io'],
+  'k8s': ['registry.k8s.io', 'k8s.gcr.io'],
+  'mcr': ['mcr.microsoft.com'],
+  'elastic': ['docker.elastic.co'],
+  'nvcr': ['nvcr.io']
+};
+
+function getRegistryBaseUrl(registryId) {
+  const prefix = REGISTRY_CONFIGS[registryId]?.prefix;
+  if (!prefix) throw new Error(`Registry ${registryId} 缺少 prefix 配置`);
+  return `https://${prefix}`;
+}
+
+function encodeImagePath(imageName) {
+  return String(imageName || '')
+    .split('/')
+    .filter(Boolean)
+    .map(part => encodeURIComponent(part))
+    .join('/');
+}
+
+function encodeRegistryReference(reference) {
+  const ref = String(reference || '');
+  if (/^[A-Za-z][A-Za-z0-9_+.-]*:[A-Za-z0-9=_+.-]+$/.test(ref)) {
+    // digest（如 sha256:xxx）中的冒号需要原样保留
+    return ref;
+  }
+  return encodeURIComponent(ref);
+}
+
+function isDigestLikeTag(tag) {
+  return /^sha256[-:][0-9a-f]{64}$/i.test(String(tag || ''));
+}
+
+function isQuayArtifactTag(tag) {
+  return /\.(att|sig)$/i.test(String(tag || '').trim());
+}
+
+function isValidDate(value) {
+  if (!value) return false;
+  const ts = Date.parse(value);
+  return Number.isFinite(ts);
+}
+
+function normalizeDate(value) {
+  return isValidDate(value) ? new Date(value).toISOString() : null;
+}
+
+function formatPlatform(platform) {
+  if (!platform || !platform.os || !platform.architecture) return null;
+  const os = String(platform.os).toLowerCase();
+  const architecture = String(platform.architecture).toLowerCase();
+  if (os === 'unknown' || architecture === 'unknown') return null;
+  return {
+    os,
+    architecture,
+    variant: platform.variant ? String(platform.variant).toLowerCase() : ''
+  };
+}
+
+function uniqPlatforms(platforms) {
+  const seen = new Set();
+  const result = [];
+  for (const platform of platforms || []) {
+    const p = formatPlatform(platform);
+    if (!p) continue;
+    const key = `${p.os}/${p.architecture}${p.variant ? `/${p.variant}` : ''}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(p);
+    }
+  }
+  return result;
+}
+
+function getManifestAnnotationDate(manifest) {
+  const annotations = manifest?.annotations || {};
+  return normalizeDate(
+    annotations['org.opencontainers.image.created'] ||
+    annotations['org.label-schema.build-date'] ||
+    annotations.created
+  );
+}
+
+function getConfigCreated(config) {
+  const labels = config?.config?.Labels || {};
+  return normalizeDate(
+    config?.created ||
+    labels['org.opencontainers.image.created'] ||
+    labels['org.label-schema.build-date'] ||
+    labels.build_date
+  );
+}
+
+function isImageIndex(manifest, contentType = '') {
+  const mediaType = manifest?.mediaType || contentType || '';
+  return mediaType.includes('image.index') || mediaType.includes('manifest.list') || Array.isArray(manifest?.manifests);
+}
+
+function isImageManifest(manifest, contentType = '') {
+  const mediaType = manifest?.mediaType || contentType || '';
+  return mediaType.includes('image.manifest') ||
+    mediaType.includes('manifest.v2') ||
+    Boolean(manifest?.config || manifest?.layers);
+}
+
+function selectPlatformManifest(manifests = []) {
+  const usable = manifests.filter(item => formatPlatform(item.platform));
+  if (!usable.length) return manifests[0] || null;
+  return usable.find(item => {
+    const p = formatPlatform(item.platform);
+    return p && p.os === 'linux' && p.architecture === 'amd64';
+  }) || usable[0];
+}
+
+function compareVersionTags(a, b) {
+  const pa = parseVersionTag(a);
+  const pb = parseVersionTag(b);
+  if (pa && pb) {
+    for (let i = 0; i < Math.max(pa.nums.length, pb.nums.length); i++) {
+      const av = pa.nums[i] ?? -1;
+      const bv = pb.nums[i] ?? -1;
+      if (av !== bv) return bv - av;
+    }
+    if (pa.pre !== pb.pre) {
+      if (!pa.pre) return -1;
+      if (!pb.pre) return 1;
+      return pb.pre.localeCompare(pa.pre);
+    }
+  } else if (pa) {
+    return -1;
+  } else if (pb) {
+    return 1;
+  }
+  return 0;
+}
+
+function parseVersionTag(tag) {
+  const match = String(tag || '').match(/^v?(\d+(?:\.\d+){0,3})(?:[-_]([0-9A-Za-z.-]+))?$/);
+  if (!match) return null;
+  return {
+    nums: match[1].split('.').map(n => Number(n)),
+    pre: match[2] || ''
+  };
+}
+
+function compareTagItems(a, b) {
+  // GHCR 会暴露 sha256-xxx 这类 digest 辅助 tag；它们可保留但不应压过正常版本号。
+  const ad = isDigestLikeTag(a.name) ? 1 : 0;
+  const bd = isDigestLikeTag(b.name) ? 1 : 0;
+  if (ad !== bd) return ad - bd;
+
+  const aversion = parseVersionTag(a.name);
+  const bversion = parseVersionTag(b.name);
+  // 正式版本号优先于 latest/main/release、PR、commit 等流水线 tag。
+  // 这样首屏先显示 v1.91.1 / 1.91.1，而不是最近更新的 main 或 pr-*。
+  if (Boolean(aversion) !== Boolean(bversion)) {
+    return aversion ? -1 : 1;
+  }
+  if (aversion && bversion) {
+    // 生产版优先于预发布版。比如 v3.1.0 是当前稳定版时，
+    // v3.2.0-rc.1 不应因为数字更大而压到稳定版前面。
+    if (Boolean(aversion.pre) !== Boolean(bversion.pre)) {
+      return aversion.pre ? 1 : -1;
+    }
+    const versionCmp = compareVersionTags(a.name, b.name);
+    if (versionCmp !== 0) return versionCmp;
+  }
+
+  const at = a.lastUpdated ? Date.parse(a.lastUpdated) : 0;
+  const bt = b.lastUpdated ? Date.parse(b.lastUpdated) : 0;
+  if (at && bt && at !== bt) return bt - at;
+  if (at && !bt) return -1;
+  if (!at && bt) return 1;
+
+  // 同一 manifest 常有 latest 与版本号两个 tag；版本号已在上面优先，
+  // 对剩余非版本 tag 让 latest 靠前。
+  const al = a.name === 'latest' ? 1 : 0;
+  const bl = b.name === 'latest' ? 1 : 0;
+  if (al !== bl) return bl - al;
+
+  // tags/list 在 GHCR 中常见为创建顺序，兜底时反向显示更接近「最新优先」。
+  return (b.originalIndex || 0) - (a.originalIndex || 0);
+}
+
+async function mapLimit(items, concurrency, iteratee) {
+  const list = Array.isArray(items) ? items : [];
+  const results = new Array(list.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), list.length) }, async () => {
+    while (cursor < list.length) {
+      const idx = cursor++;
+      results[idx] = await iteratee(list[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+
+/**
+ * 标准化用户输入的镜像引用：
+ * - ghcr.io/tale/headplane:0.7.1 -> tale/headplane
+ * - https://quay.io/prometheus/prometheus -> prometheus/prometheus
+ * - dotnet/sdk@sha256:... -> dotnet/sdk
+ *
+ * 这里不把未知的「带点域名」强行剥掉，避免误伤合法命名空间；后台代理域名
+ * 仍建议用户在对应平台 chip 下输入上游路径（如 tale/headplane）。
+ */
+function normalizeRegistrySearchTerm(registryId, term) {
+  const raw = String(term || '').trim();
+  let value = raw
+    .replace(/^https?:\/\//i, '')
+    .replace(/^\/+/, '')
+    .split(/[?#]/)[0];
+
+  let hadExplicitHost = false;
+  let hadTagOrDigest = false;
+  const aliases = new Set(REGISTRY_HOST_ALIASES[registryId] || []);
+  const configuredPrefix = REGISTRY_CONFIGS[registryId]?.prefix;
+  if (configuredPrefix) aliases.add(configuredPrefix);
+
+  for (const host of Array.from(aliases).filter(Boolean).sort((a, b) => b.length - a.length)) {
+    const lower = value.toLowerCase();
+    const hostLower = host.toLowerCase();
+    if (lower === hostLower) {
+      value = '';
+      hadExplicitHost = true;
+      break;
+    }
+    if (lower.startsWith(`${hostLower}/`)) {
+      value = value.slice(host.length + 1);
+      hadExplicitHost = true;
+      break;
+    }
+  }
+
+  // 兼容粘贴 Registry API URL 的路径片段：/v2/<name>/tags/list
+  value = value.replace(/^v2\//i, '').replace(/\/tags\/list$/i, '');
+
+  const digestIdx = value.indexOf('@');
+  if (digestIdx >= 0) {
+    value = value.slice(0, digestIdx);
+    hadTagOrDigest = true;
+  }
+
+  const lastSlash = value.lastIndexOf('/');
+  const lastColon = value.lastIndexOf(':');
+  // 只剥离最后一个 path segment 上的 tag，避免把 host:port 当成 tag。
+  if (lastColon > lastSlash) {
+    value = value.slice(0, lastColon);
+    hadTagOrDigest = true;
+  }
+
+  value = value.replace(/^\/+|\/+$/g, '');
+
+  return {
+    raw,
+    imageName: value,
+    hadExplicitHost,
+    hadTagOrDigest
+  };
+}
+
+function shouldAttemptExactLookup(registryId, normalized) {
+  if (!EXACT_LOOKUP_REGISTRIES.has(registryId)) return false;
+  if (!normalized || !normalized.imageName) return false;
+  if (/\s/.test(normalized.imageName)) return false;
+  return normalized.hadExplicitHost || normalized.hadTagOrDigest || normalized.imageName.includes('/');
+}
+
+function buildRegistryTagsUrl(registryId, imageName) {
+  const config = REGISTRY_CONFIGS[registryId];
+  if (!config || !config.tagsUrl) {
+    throw new Error(`Registry ${registryId} 不支持获取标签`);
+  }
+
+  const normalized = normalizeRegistrySearchTerm(registryId, imageName).imageName;
+  if (!normalized) {
+    throw new Error(`镜像名称不能为空`);
+  }
+
+  // 形如 ghcr.io/v2/{namespace}/{repo}/tags/list 的模板需要拆出首段 namespace，
+  // repo 允许保留剩余多级路径。此前这里无条件 split('/')，导致 mcr/dotnet/sdk
+  // 这类 {repo} 模板被错误拼成 /v2/sdk/tags/list。
+  if (config.tagsUrl.includes('{namespace}')) {
+    const parts = normalized.split('/').filter(Boolean);
+    if (parts.length < 2) {
+      throw new Error(`${config.name} 镜像名需包含命名空间，例如 namespace/repository`);
+    }
+    const namespace = encodeURIComponent(parts[0]);
+    const repo = encodeImagePath(parts.slice(1).join('/'));
+    return config.tagsUrl
+      .replace('{namespace}', namespace)
+      .replace('{repo}', repo);
+  }
+
+  return config.tagsUrl.replace('{repo}', encodeImagePath(normalized));
+}
+
+function withQueryParam(url, key, value) {
+  const u = new URL(url);
+  u.searchParams.set(key, String(value));
+  return u.toString();
+}
+
+function parseNextLink(linkHeader, currentUrl) {
+  if (!linkHeader) return '';
+  const parts = String(linkHeader).split(',');
+  for (const part of parts) {
+    if (!/rel="?next"?/i.test(part)) continue;
+    const match = part.match(/<([^>]+)>/);
+    if (!match) continue;
+    return new URL(match[1], currentUrl).toString();
+  }
+  return '';
+}
+
+async function fetchAllOCITagNames(registryId, imageName) {
+  const cacheKey = `oci-tags:names:${registryId}:${imageName}:${MAX_OCI_TAGS}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  let url = withQueryParam(buildRegistryTagsUrl(registryId, imageName), 'n', OCI_TAG_LIST_PAGE_SIZE);
+  const tags = [];
+  const seen = new Set();
+
+  while (url && tags.length < MAX_OCI_TAGS) {
+    const response = await fetchWithRegistryAuth(url, registryId, imageName);
+    const batch = Array.isArray(response.data?.tags) ? response.data.tags : [];
+    for (const tag of batch) {
+      const name = typeof tag === 'string' ? tag : tag?.name;
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      tags.push(name);
+      if (tags.length >= MAX_OCI_TAGS) break;
+    }
+
+    const next = parseNextLink(response.headers?.link, url);
+    if (!next || !batch.length) break;
+    url = next;
+  }
+
+  return setCache(cacheKey, tags);
+}
+
+function getKnownTokenChallenge(registryId, imageName) {
+  const prefix = REGISTRY_CONFIGS[registryId]?.prefix;
+  if (!prefix || !imageName) return null;
+
+  switch (registryId) {
+    case 'ghcr':
+      return {
+        realm: 'https://ghcr.io/token',
+        service: 'ghcr.io',
+        scope: `repository:${imageName}:pull`
+      };
+    case 'quay':
+      return {
+        realm: 'https://quay.io/v2/auth',
+        service: 'quay.io',
+        scope: `repository:${imageName}:pull`
+      };
+    case 'nvcr':
+      return {
+        realm: 'https://nvcr.io/proxy_auth',
+        service: '',
+        scope: `repository:${imageName}:pull`
+      };
+    default:
+      return null;
+  }
+}
+
+function tokenCacheKey(registryId, realm, service, scope, cred) {
+  const credentialFingerprint = cred?.password
+    ? crypto.createHash('sha256').update(String(cred.password)).digest('hex')
+    : '';
+  return [
+    registryId,
+    realm || '',
+    service || '',
+    scope || '',
+    cred?.username || '',
+    credentialFingerprint
+  ].join('|');
+}
+
+function getCachedToken(key) {
+  return tokenCache.get(key)?.token || '';
+}
+
+function setCachedToken(key, token, expiresInSeconds = 300) {
+  if (!token) return;
+  const ttl = Math.max(30, Number(expiresInSeconds) || 300) * 1000;
+  // Keep the existing expiry skew so a token is refreshed before the
+  // upstream invalidates it. The LRU cache still owns the actual expiration
+  // timestamp and periodic cleanup.
+  tokenCache.set(key, { token }, Math.max(1, ttl - TOKEN_CACHE_SKEW_MS));
+}
+
+async function requestBearerToken(registryId, challenge, opts, attempt = 0) {
+  const { realm, service, scope } = challenge || {};
+  if (!realm) return '';
+
+  const cred = await getCredentialForAuth(registryId, { refresh: attempt > 0 });
+  const key = tokenCacheKey(registryId, realm, service, scope, cred);
+  const cached = getCachedToken(key);
+  if (cached) return cached;
+
+  const tokenUrl = new URL(realm);
+  if (scope) tokenUrl.searchParams.set('scope', scope);
+  if (service) tokenUrl.searchParams.set('service', service);
+
+  const tokenOpts = {
+    ...httpOptions,
+    timeout: opts?.timeout || httpOptions.timeout,
+    headers: { ...httpOptions.headers, Accept: 'application/json' }
+  };
+  if (cred) {
+    tokenOpts.headers.Authorization =
+      'Basic ' + Buffer.from(`${cred.username}:${cred.password}`).toString('base64');
+  }
+
+  const tokenResp = await axios.get(tokenUrl.toString(), tokenOpts);
+  const token = tokenResp.data && (tokenResp.data.token || tokenResp.data.access_token);
+  setCachedToken(key, token, tokenResp.data?.expires_in);
+  return token;
+}
+
+async function fetchManifest(registryId, imageName, reference) {
+  const url = `${getRegistryBaseUrl(registryId)}/v2/${encodeImagePath(imageName)}/manifests/${encodeRegistryReference(reference)}`;
+  return await fetchWithRegistryAuth(url, registryId, imageName, {
+    headers: { Accept: OCI_MANIFEST_ACCEPT }
+  });
+}
+
+async function fetchBlob(registryId, imageName, digest) {
+  const url = `${getRegistryBaseUrl(registryId)}/v2/${encodeImagePath(imageName)}/blobs/${digest}`;
+  const response = await fetchWithRegistryAuth(url, registryId, imageName, {
+    maxRedirects: 0,
+    validateStatus: status => (status >= 200 && status < 300) || [301, 302, 303, 307, 308].includes(status),
+    headers: { Accept: 'application/vnd.oci.image.config.v1+json, application/json, application/octet-stream' }
+  });
+
+  // GHCR blob 接口会 307 到 pkg-containers.githubusercontent.com 的签名 URL。
+  // 手动跟随一次并去掉 Registry 的 Authorization，避免 follow-redirects 在部分代理
+  // 环境中跨主机转发鉴权头导致 TLS/连接异常。
+  if ([301, 302, 303, 307, 308].includes(response.status) && response.headers?.location) {
+    const redirectUrl = new URL(response.headers.location, url).toString();
+    return await axios.get(redirectUrl, {
+      ...httpOptions,
+      headers: {
+        ...httpOptions.headers,
+        Accept: 'application/vnd.oci.image.config.v1+json, application/json, application/octet-stream'
+      }
+    });
+  }
+
+  return response;
+}
+
+function getManifestDigest(response) {
+  return response?.headers?.['docker-content-digest'] || response?.headers?.etag?.replace(/^"|"$/g, '') || '';
+}
+
+async function metadataFromImageManifest(registryId, imageName, manifest, fallbackPlatform = null) {
+  const layers = Array.isArray(manifest?.layers) ? manifest.layers : [];
+  const size = layers.reduce((sum, layer) => sum + (Number(layer.size) || 0), 0);
+  let lastUpdated = getManifestAnnotationDate(manifest);
+  let images = fallbackPlatform ? uniqPlatforms([fallbackPlatform]) : [];
+
+  if (manifest?.config?.digest) {
+    try {
+      const cacheKey = `oci-blob:${registryId}:${imageName}:${manifest.config.digest}`;
+      let config = getCache(cacheKey);
+      if (!config) {
+        const configResp = await fetchBlob(registryId, imageName, manifest.config.digest);
+        config = configResp.data;
+        setCache(cacheKey, config);
+      }
+
+      lastUpdated = getConfigCreated(config) || lastUpdated;
+      const configPlatform = formatPlatform({
+        os: config?.os,
+        architecture: config?.architecture,
+        variant: config?.variant
+      });
+      if (configPlatform && !images.length) images = [configPlatform];
+    } catch (error) {
+      logger.debug?.(`读取 ${registryId}/${imageName} config blob 失败: ${error.message}`);
+    }
+  }
+
+  return {
+    size: size || manifest?.config?.size || null,
+    lastUpdated,
+    images
+  };
+}
+
+async function getOCITagMetadata(registryId, imageName, tagName, originalIndex = 0) {
+  const cacheKey = `oci-tag-meta:v2:${registryId}:${imageName}:${tagName}`;
+  const cached = getCache(cacheKey);
+  if (cached) return { ...cached, originalIndex };
+
+  const base = {
+    name: tagName,
+    digest: null,
+    lastUpdated: null,
+    size: null,
+    images: [],
+    originalIndex
+  };
+
+  try {
+    const manifestResp = await fetchManifest(registryId, imageName, tagName);
+    const manifest = manifestResp.data || {};
+    base.digest = getManifestDigest(manifestResp) || null;
+
+    let meta = {
+      size: null,
+      lastUpdated: getManifestAnnotationDate(manifest),
+      images: []
+    };
+
+    if (isImageIndex(manifest, manifestResp.headers?.['content-type'])) {
+      const manifests = Array.isArray(manifest.manifests) ? manifest.manifests : [];
+      meta.images = uniqPlatforms(manifests.map(item => item.platform));
+
+      const selected = selectPlatformManifest(manifests);
+      if (selected?.digest && isImageManifest({ mediaType: selected.mediaType })) {
+        const digestKey = `oci-manifest-meta:v2:${registryId}:${imageName}:${selected.digest}`;
+        let childMeta = getCache(digestKey);
+        if (!childMeta) {
+          const childResp = await fetchManifest(registryId, imageName, selected.digest);
+          childMeta = await metadataFromImageManifest(registryId, imageName, childResp.data || {}, selected.platform);
+          setCache(digestKey, childMeta);
+        }
+        meta = {
+          size: childMeta.size || selected.size || meta.size,
+          lastUpdated: childMeta.lastUpdated || meta.lastUpdated,
+          images: meta.images.length ? meta.images : childMeta.images
+        };
+      }
+    } else if (isImageManifest(manifest, manifestResp.headers?.['content-type'])) {
+      meta = await metadataFromImageManifest(registryId, imageName, manifest);
+    }
+
+    const enriched = { ...base, ...meta };
+    setCache(cacheKey, enriched);
+    return enriched;
+  } catch (error) {
+    logger.warn(`读取 ${registryId}/${imageName}:${tagName} 元数据失败: ${error.message}`);
+    setCache(cacheKey, base, 60 * 1000);
+    return base;
+  }
+}
+
+async function getEnrichedOCITags(registryId, imageName) {
+  const cacheKey = `oci-tags:enriched:v2:${registryId}:${imageName}:${MAX_OCI_TAGS}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const names = await fetchAllOCITagNames(registryId, imageName);
+  const friendly = [];
+  const digestLike = [];
+  names.forEach((name, originalIndex) => {
+    (isDigestLikeTag(name) ? digestLike : friendly).push({ name, originalIndex });
+  });
+
+  const friendlyItems = await mapLimit(friendly, OCI_METADATA_CONCURRENCY, item =>
+    getOCITagMetadata(registryId, imageName, item.name, item.originalIndex)
+  );
+  const digestItems = INCLUDE_DIGEST_LIKE_TAGS
+    ? digestLike.map(item => ({
+      name: item.name,
+      digest: null,
+      lastUpdated: null,
+      size: null,
+      images: [],
+      originalIndex: item.originalIndex
+    }))
+    : [];
+
+  const items = [...friendlyItems, ...digestItems];
+
+  items.sort(compareTagItems);
+  return setCache(cacheKey, items);
+}
+
+async function getSortedOCITagNames(registryId, imageName, sourceRepository = '') {
+  const normalizedSource = normalizeGitHubRepository(sourceRepository);
+  const cacheKey = `oci-tags:sorted-names:v2:${registryId}:${imageName}:${normalizedSource}:${MAX_OCI_TAGS}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const names = await fetchAllOCITagNames(registryId, imageName);
+  const releaseNames = registryId === 'ghcr' && normalizedSource
+    ? await getGitHubReleaseTagNames(normalizedSource)
+    : [];
+  const mergedNames = mergeTagNames(names, releaseNames);
+  const items = mergedNames
+    .filter(name => INCLUDE_DIGEST_LIKE_TAGS || !isDigestLikeTag(name))
+    .map((name, originalIndex) => ({
+      name,
+      originalIndex,
+      lastUpdated: null,
+      size: null,
+      images: []
+    }))
+    .sort(compareTagItems);
+
+  return setCache(cacheKey, items);
+}
+
+function makeRegistrySearchItem(registryId, imageName, extra = {}) {
+  const config = REGISTRY_CONFIGS[registryId] || {};
+  const parts = String(imageName || '').split('/').filter(Boolean);
+  const name = parts.length ? parts[parts.length - 1] : imageName;
+  const namespace = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+  return {
+    name,
+    namespace,
+    description: extra.description || config.description || '',
+    stars: extra.stars || 0,
+    pulls: extra.pulls || 0,
+    isOfficial: Boolean(extra.isOfficial),
+    isAutomated: false,
+    isExactMatch: Boolean(extra.isExactMatch),
+    fullName: imageName,
+    registry: registryId,
+    pullCommand: config.prefix ? `${config.prefix}/${imageName}` : imageName,
+    url: extra.url
+  };
+}
+
+function parseQuayImageName(imageName) {
+  const normalized = normalizeRegistrySearchTerm('quay', imageName).imageName;
+  const parts = normalized.includes('/')
+    ? normalized.split('/').filter(Boolean)
+    : ['library', normalized];
+  const namespace = parts.shift();
+  const repo = parts.join('/');
+  return { normalized, namespace, repo };
+}
+
+async function fetchQuayActiveTagPage(imageName, page = 1, limit = OCI_TAG_LIST_PAGE_SIZE) {
+  const { normalized, namespace, repo } = parseQuayImageName(imageName);
+  const url = `https://quay.io/api/v1/repository/${encodeURIComponent(namespace)}/${encodeImagePath(repo)}/tag/?onlyActiveTags=true&limit=${limit}&page=${page}`;
+  const response = await fetchWithRegistryAuth(url, 'quay', normalized, { skipKnownChallenge: true });
+  return { normalized, data: response.data || {} };
+}
+
+async function fetchAllQuayActiveTags(imageName) {
+  const { normalized } = parseQuayImageName(imageName);
+  const cacheKey = `quay-tags:active:${normalized}:${MAX_OCI_TAGS}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const tags = [];
+  const seen = new Set();
+  let page = 1;
+
+  while (tags.length < MAX_OCI_TAGS) {
+    const { data } = await fetchQuayActiveTagPage(normalized, page, OCI_TAG_LIST_PAGE_SIZE);
+    const batch = Array.isArray(data.tags) ? data.tags : [];
+
+    for (const tag of batch) {
+      const name = tag?.name;
+      if (!name || seen.has(name)) continue;
+      if (!INCLUDE_QUAY_ARTIFACT_TAGS && isQuayArtifactTag(name)) continue;
+      seen.add(name);
+      tags.push({
+        name,
+        digest: tag.manifest_digest || null,
+        lastUpdated: tag.last_modified || null,
+        size: tag.size ?? null,
+        images: [],
+        originalIndex: tags.length
+      });
+      if (tags.length >= MAX_OCI_TAGS) break;
+    }
+
+    if (!data.has_additional || !batch.length) break;
+    page += 1;
+  }
+
+  tags.sort(compareTagItems);
+  return setCache(cacheKey, tags);
+}
+
+async function probeImageTags(registryId, imageName) {
+  if (registryId === 'quay') {
+    const { normalized, data } = await fetchQuayActiveTagPage(imageName, 1, 1);
+    const tags = data.tags || [];
+    return {
+      registry: registryId,
+      imageName: normalized,
+      count: Array.isArray(tags) ? tags.length : 0,
+      results: Array.isArray(tags) ? tags.map(tag => ({ name: typeof tag === 'string' ? tag : tag.name })) : []
+    };
+  }
+
+  const url = withQueryParam(buildRegistryTagsUrl(registryId, imageName), 'n', 1);
+  const response = await fetchWithRegistryAuth(url, registryId, imageName);
+  const tags = response.data?.tags || [];
+  return {
+    registry: registryId,
+    imageName,
+    count: Array.isArray(tags) ? tags.length : 0,
+    results: Array.isArray(tags) ? tags.map(tag => ({ name: typeof tag === 'string' ? tag : tag.name })) : []
+  };
+}
+
+async function searchExactImage(registryId, term) {
+  const normalized = normalizeRegistrySearchTerm(registryId, term);
+  if (!shouldAttemptExactLookup(registryId, normalized)) return null;
+
+  try {
+    await probeImageTags(registryId, normalized.imageName);
+    return makeRegistrySearchItem(registryId, normalized.imageName, {
+      isExactMatch: true,
+      description: `${REGISTRY_CONFIGS[registryId].name} 精确匹配镜像`
+    });
+  } catch (error) {
+    const status = error.response?.status;
+    if (status === 404) return null;
+    logger.warn(`精确验证 ${registryId} 镜像 ${normalized.imageName} 失败: ${error.message}`);
+    return null;
+  }
+}
+
+function mergeSearchItems(primaryItems, secondaryItems, limit = 25) {
+  const merged = [];
+  const byName = new Map();
+  for (const item of [...(primaryItems || []), ...(secondaryItems || [])]) {
+    if (!item || !item.fullName) continue;
+    const key = item.fullName.toLowerCase();
+    if (byName.has(key)) {
+      const idx = byName.get(key);
+      const oldItem = merged[idx];
+      const oldDesc = oldItem.description || '';
+      const shouldUseIncomingDesc =
+        item.description && (!oldDesc || (oldItem.isExactMatch && oldDesc.includes('精确匹配镜像')));
+      merged[idx] = {
+        ...oldItem,
+        description: shouldUseIncomingDesc ? item.description : oldDesc,
+        stars: oldItem.stars || item.stars || 0,
+        pulls: oldItem.pulls || item.pulls || 0,
+        url: oldItem.url || item.url,
+        isOfficial: oldItem.isOfficial || item.isOfficial,
+        isExactMatch: oldItem.isExactMatch || item.isExactMatch
+      };
+      continue;
+    }
+    if (merged.length >= limit) continue;
+    byName.set(key, merged.length);
+    merged.push(item);
+  }
+  return sortByOfficial(merged);
+}
+
+async function searchStaticListWithExact(registryId, term, page = 1, pageSize = 25) {
+  const staticResults = searchStaticList(registryId, term, page, pageSize);
+  if (page !== 1) return staticResults;
+
+  const exactItem = await searchExactImage(registryId, term);
+  if (!exactItem) return staticResults;
+
+  const merged = mergeSearchItems([exactItem], staticResults.results, pageSize);
+  const exactAlreadyInStatic = staticResults.results.some(
+    item => item.fullName && item.fullName.toLowerCase() === exactItem.fullName.toLowerCase()
+  );
+  return {
+    ...staticResults,
+    count: staticResults.count + (exactAlreadyInStatic ? 0 : 1),
+    results: merged
+  };
+}
 
 // 常用镜像的静态列表（用于不支持搜索 API 的 Registry）
 const STATIC_IMAGE_LISTS = {
@@ -297,7 +1229,9 @@ async function searchDockerHub(term, page = 1, pageSize = 25) {
  * 搜索 Quay.io
  */
 async function searchQuay(term, page = 1, pageSize = 25) {
-  const url = `https://quay.io/api/v1/find/repositories?query=${encodeURIComponent(term)}&page=${page}`;
+  const exactItem = page === 1 ? await searchExactImage('quay', term) : null;
+  const normalized = normalizeRegistrySearchTerm('quay', term).imageName || term;
+  const url = `https://quay.io/api/v1/find/repositories?query=${encodeURIComponent(normalized)}&page=${page}`;
   
   try {
     const response = await axios.get(url, {
@@ -309,31 +1243,222 @@ async function searchQuay(term, page = 1, pageSize = 25) {
     });
     
     const results = response.data.results || [];
+    const apiResults = results.map(item => ({
+      name: item.name,
+      namespace: item.namespace?.name || item.namespace,
+      description: item.description || '',
+      stars: item.popularity || 0,
+      pulls: 0,
+      isOfficial: item.is_public || false,
+      isAutomated: false,
+      fullName: `${item.namespace?.name || item.namespace}/${item.name}`,
+      registry: 'quay',
+      pullCommand: `quay.io/${item.namespace?.name || item.namespace}/${item.name}`
+    }));
+    const exactAlreadyInApi = Boolean(exactItem) && apiResults.some(
+      item => item.fullName && item.fullName.toLowerCase() === exactItem.fullName.toLowerCase()
+    );
     
     return {
       registry: 'quay',
       registryName: REGISTRY_CONFIGS['quay'].name,
       registryIcon: REGISTRY_CONFIGS['quay'].icon,
       registryColor: REGISTRY_CONFIGS['quay'].color,
-      count: results.length,
-      results: sortByOfficial(results.map(item => ({
-        name: item.name,
-        namespace: item.namespace?.name || item.namespace,
-        description: item.description || '',
-        stars: item.popularity || 0,
-        pulls: 0,
-        isOfficial: item.is_public || false,
-        isAutomated: false,
-        fullName: `${item.namespace?.name || item.namespace}/${item.name}`,
-        registry: 'quay',
-        pullCommand: `quay.io/${item.namespace?.name || item.namespace}/${item.name}`
-      })))
+      count: results.length + (exactItem && !exactAlreadyInApi ? 1 : 0),
+      results: mergeSearchItems(exactItem ? [exactItem] : [], apiResults, pageSize)
     };
   } catch (error) {
     logger.error(`搜索 Quay.io 失败: ${error.message}`);
-    // 如果 API 搜索失败，使用静态列表进行本地搜索
-    return searchStaticList('quay', term);
+    // 如果 API 搜索失败，使用静态列表 + 精确镜像探测兜底
+    return searchStaticListWithExact('quay', term, page, pageSize);
   }
+}
+
+function getGitHubApiRequestOptions(credential = null) {
+  const options = {
+    ...httpOptions,
+    headers: {
+      ...httpOptions.headers,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    }
+  };
+  // GitHub REST 的 Packages API 需要 PAT；这里复用 GHCR token 配置中的
+  // password 字段（配置文件中的 token），而不是把 Basic 凭证发给 GitHub API。
+  if (credential?.password) {
+    options.headers.Authorization = `Bearer ${credential.password}`;
+  }
+  return options;
+}
+
+function normalizeGitHubRepository(sourceRepository) {
+  const value = String(sourceRepository || '')
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, '')
+    .replace(/^\/+|\/+$/g, '');
+  const match = value.match(/^([^/]+)\/([^/]+?)(?:\.git)?$/);
+  return match ? `${match[1]}/${match[2]}` : '';
+}
+
+async function getGitHubReleaseTagNames(sourceRepository) {
+  const repository = normalizeGitHubRepository(sourceRepository);
+  if (!repository) return [];
+  const cacheKey = `github-release-tags:${repository.toLowerCase()}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const credential = await getCredentialForAuth('ghcr');
+  const url = `https://api.github.com/repos/${repository}/releases?per_page=100&page=1`;
+  try {
+    const response = await axios.get(url, getGitHubApiRequestOptions(credential));
+    const tags = Array.isArray(response.data)
+      ? response.data.map(release => release?.tag_name).filter(Boolean)
+      : [];
+    return setCache(cacheKey, tags, GITHUB_PACKAGE_CACHE_TTL_MS);
+  } catch (error) {
+    // 失效 PAT 不应阻断 GHCR 自身的标签读取；匿名 release API 仍可能可用。
+    if (error.response?.status === 401 && credential?.password) {
+      try {
+        const response = await axios.get(url, getGitHubApiRequestOptions(null));
+        const tags = Array.isArray(response.data)
+          ? response.data.map(release => release?.tag_name).filter(Boolean)
+          : [];
+        return setCache(cacheKey, tags, 60 * 1000);
+      } catch (anonymousError) {
+        logger.warn(`读取 GitHub 仓库 ${repository} releases 失败: ${anonymousError.message}`);
+      }
+    } else {
+      logger.warn(`读取 GitHub 仓库 ${repository} releases 失败: ${error.message}`);
+    }
+    return setCache(cacheKey, [], 60 * 1000);
+  }
+}
+
+function mergeTagNames(registryNames, releaseNames) {
+  const names = [];
+  const seen = new Set();
+  for (const name of [...(registryNames || []), ...(releaseNames || [])]) {
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+function packageNameMatchesRepository(packageName, repositoryName, query) {
+  const pkg = String(packageName || '').toLowerCase();
+  const repo = String(repositoryName || '').toLowerCase();
+  const term = String(query || '').toLowerCase().replace(/^.*\//, '');
+
+  // build-cache / 临时构建包不是用户通常希望浏览的运行时镜像。
+  if (/(^|[-/])build-cache$/.test(pkg) || pkg.includes('build-cache/')) return false;
+  if (!term) return pkg === repo || pkg.startsWith(`${repo}-`);
+  return pkg === term ||
+    pkg.startsWith(`${term}-`) ||
+    pkg.includes(term) ||
+    pkg === repo ||
+    pkg.startsWith(`${repo}-`);
+}
+
+async function getGitHubContainerPackages(owner) {
+  const normalizedOwner = String(owner || '').trim();
+  if (!normalizedOwner) return [];
+  const cacheKey = `github-container-packages:${normalizedOwner.toLowerCase()}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const credential = await getCredentialForAuth('ghcr');
+  if (!credential?.password) {
+    return setCache(cacheKey, [], 60 * 1000);
+  }
+
+  const packages = [];
+  // /users/{owner}/packages 同时覆盖 GitHub 用户和组织，且实际部署环境已验证
+  // 组织 owner（例如 immich-app）也可从该接口读取 container packages。
+  for (let page = 1; page <= 3; page++) {
+    const url = `https://api.github.com/users/${encodeURIComponent(normalizedOwner)}/packages?package_type=container&per_page=100&page=${page}`;
+    try {
+      const response = await axios.get(url, getGitHubApiRequestOptions(credential));
+      const batch = Array.isArray(response.data) ? response.data : [];
+      packages.push(...batch.filter(pkg => pkg && pkg.name));
+      if (batch.length < 100) break;
+    } catch (error) {
+      if (error.response?.status === 404) break;
+      logger.warn(`读取 GitHub owner ${normalizedOwner} 的 Container Packages 失败: ${error.message}`);
+      break;
+    }
+  }
+
+  return setCache(cacheKey, packages, GITHUB_PACKAGE_CACHE_TTL_MS);
+}
+
+function makeGHCRPackageItem(repositoryItem, packageName) {
+  const owner = repositoryItem.owner?.login || repositoryItem.namespace || '';
+  const fullName = `${owner}/${packageName}`;
+  const sourceRepository = normalizeGitHubRepository(
+    repositoryItem.sourceRepository || `${owner}/${repositoryItem.name || ''}`
+  );
+  return {
+    name: packageName.includes('/') ? packageName.split('/').pop() : packageName,
+    namespace: owner,
+    description: repositoryItem.description || '',
+    stars: repositoryItem.stargazers_count || repositoryItem.stars || 0,
+    pulls: 0,
+    isOfficial: repositoryItem.owner?.type === 'Organization' || Boolean(repositoryItem.isOfficial),
+    isAutomated: false,
+    fullName,
+    registry: 'ghcr',
+    pullCommand: `ghcr.io/${fullName}`,
+    url: repositoryItem.html_url || repositoryItem.url,
+    packageName,
+    tagsAvailable: true,
+    sourceRepository
+  };
+}
+
+async function enrichGHCRRepositoryResults(items, query) {
+  const repositories = Array.isArray(items) ? items : [];
+  // 只查询前几个 owner，避免普通关键词搜索触发大量 Packages API 请求。
+  const owners = [];
+  const seenOwners = new Set();
+  for (const item of repositories.slice(0, 8)) {
+    const owner = item.owner?.login || item.namespace;
+    if (!owner || seenOwners.has(owner.toLowerCase())) continue;
+    seenOwners.add(owner.toLowerCase());
+    owners.push(owner);
+  }
+
+  const ownerPackages = await mapLimit(owners, 3, async owner => ({
+    owner,
+    packages: await getGitHubContainerPackages(owner)
+  }));
+  const packageMap = new Map(ownerPackages.map(entry => [entry.owner.toLowerCase(), entry.packages]));
+  const enriched = [];
+
+  for (const repositoryItem of repositories) {
+    const owner = (repositoryItem.owner?.login || repositoryItem.namespace || '').toLowerCase();
+    const repoName = repositoryItem.name || '';
+    const packages = packageMap.get(owner) || [];
+    const matchedPackages = packages
+      .map(pkg => pkg.name)
+      .filter(name => packageNameMatchesRepository(name, repoName, query));
+
+    if (matchedPackages.length) {
+      for (const packageName of matchedPackages) {
+        enriched.push(makeGHCRPackageItem(repositoryItem, packageName));
+      }
+    } else {
+      // 没有权限读取 package 列表或该 owner 没有公开 package 时保留原仓库结果，
+      // 但不伪装成已确认存在的 GHCR 镜像。
+      enriched.push({
+        ...makeGHCRPackageItem(repositoryItem, repoName),
+        packageName: null,
+        tagsAvailable: false
+      });
+    }
+  }
+
+  return enriched;
 }
 
 /**
@@ -342,10 +1467,24 @@ async function searchQuay(term, page = 1, pageSize = 25) {
 async function searchGHCR(term, page = 1, pageSize = 25) {
   // 首先尝试使用静态列表搜索（按 page/pageSize 切片，避免与 API 结果合并后超过 pageSize）
   const staticResults = searchStaticList('ghcr', term, page, pageSize);
+  const exactItem = page === 1 ? await searchExactImage('ghcr', term) : null;
+  const normalized = normalizeRegistrySearchTerm('ghcr', term).imageName || term;
   
   try {
-    // 然后尝试使用 GitHub API 搜索仓库
-    const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(term)}+topic:docker+topic:container&per_page=${pageSize}&page=${page}`;
+    // 然后尝试使用 GitHub API 搜索仓库。
+    // 注意：GHCR 没有公开的通用包搜索 API；原实现把查询限定为
+    // "topic:docker topic:container"，会漏掉 tale/headplane 这类没有打 topic
+    // 但确实发布了 GHCR 镜像的项目。这里改成宽松仓库搜索，精确输入则已通过
+    // tags/list 先做过真实镜像验证。
+    const githubQuery = normalized.includes('/')
+      ? normalized
+      : `${normalized} in:name,description,readme`;
+    const params = new URLSearchParams({
+      q: githubQuery,
+      per_page: String(pageSize),
+      page: String(page)
+    });
+    const url = `https://api.github.com/search/repositories?${params.toString()}`;
     
     const response = await axios.get(url, {
       ...httpOptions,
@@ -356,7 +1495,7 @@ async function searchGHCR(term, page = 1, pageSize = 25) {
     });
     
     const data = response.data;
-    const apiResults = (data.items || []).map(item => ({
+    const repositoryResults = (data.items || []).map(item => ({
       name: item.name,
       namespace: item.owner?.login || '',
       description: item.description || '',
@@ -369,17 +1508,21 @@ async function searchGHCR(term, page = 1, pageSize = 25) {
       pullCommand: `ghcr.io/${item.owner?.login}/${item.name}`,
       url: item.html_url
     }));
+    const apiResults = await enrichGHCRRepositoryResults(
+      repositoryResults.map(item => ({
+        ...item,
+        owner: { login: item.namespace, type: item.isOfficial ? 'Organization' : 'User' },
+        html_url: item.url
+      })),
+      normalized
+    );
     
     // 合并静态列表和 API 结果，去重；总条数封顶 pageSize（聚合模式下这是每个 Registry 的配额）
-    const allResults = [...staticResults.results];
-    const existingNames = new Set(allResults.map(r => r.fullName.toLowerCase()));
-    
-    for (const item of apiResults) {
-      if (allResults.length >= pageSize) break;
-      if (!existingNames.has(item.fullName.toLowerCase())) {
-        allResults.push(item);
-      }
-    }
+    const allResults = mergeSearchItems(
+      exactItem ? [exactItem] : [],
+      [...staticResults.results, ...apiResults],
+      pageSize
+    );
     
     return {
       registry: 'ghcr',
@@ -387,11 +1530,19 @@ async function searchGHCR(term, page = 1, pageSize = 25) {
       registryIcon: REGISTRY_CONFIGS['ghcr'].icon,
       registryColor: REGISTRY_CONFIGS['ghcr'].color,
       count: allResults.length,
-      results: sortByOfficial(allResults)
+      results: allResults
     };
   } catch (error) {
     logger.warn(`GitHub API 搜索失败，使用静态列表: ${error.message}`);
-    return staticResults;
+    if (!exactItem) return staticResults;
+    const merged = mergeSearchItems([exactItem], staticResults.results, pageSize);
+    return {
+      ...staticResults,
+      count: staticResults.count + (staticResults.results.some(
+        item => item.fullName && item.fullName.toLowerCase() === exactItem.fullName.toLowerCase()
+      ) ? 0 : 1),
+      results: merged
+    };
   }
 }
 
@@ -401,12 +1552,16 @@ async function searchGHCR(term, page = 1, pageSize = 25) {
 function searchStaticList(registryId, term, page = 1, pageSize = 25) {
   const config = REGISTRY_CONFIGS[registryId];
   const staticList = STATIC_IMAGE_LISTS[registryId] || [];
-  const lowerTerm = term.toLowerCase();
+  const normalized = normalizeRegistrySearchTerm(registryId, term).imageName || term;
+  const lowerTerm = normalized.toLowerCase();
   
   const matched = staticList.filter(item => {
     const nameMatch = item.name.toLowerCase().includes(lowerTerm);
+    const pullNameMatch = config.prefix
+      ? `${config.prefix}/${item.name}`.toLowerCase().includes(String(term || '').toLowerCase())
+      : false;
     const descMatch = item.description && item.description.toLowerCase().includes(lowerTerm);
-    return nameMatch || descMatch;
+    return nameMatch || pullNameMatch || descMatch;
   });
   
   const start = (page - 1) * pageSize;
@@ -437,35 +1592,35 @@ function searchStaticList(registryId, term, page = 1, pageSize = 25) {
  * 搜索 Kubernetes Registry
  */
 async function searchK8s(term, page = 1, pageSize = 25) {
-  return searchStaticList('k8s', term);
+  return searchStaticListWithExact('k8s', term, page, pageSize);
 }
 
 /**
  * 搜索 Google Container Registry
  */
 async function searchGCR(term, page = 1, pageSize = 25) {
-  return searchStaticList('gcr', term);
+  return searchStaticListWithExact('gcr', term, page, pageSize);
 }
 
 /**
  * 搜索 Microsoft Container Registry
  */
 async function searchMCR(term, page = 1, pageSize = 25) {
-  return searchStaticList('mcr', term);
+  return searchStaticListWithExact('mcr', term, page, pageSize);
 }
 
 /**
  * 搜索 Elastic Container Registry
  */
 async function searchElastic(term, page = 1, pageSize = 25) {
-  return searchStaticList('elastic', term);
+  return searchStaticListWithExact('elastic', term, page, pageSize);
 }
 
 /**
  * 搜索 NVIDIA Container Registry
  */
 async function searchNVCR(term, page = 1, pageSize = 25) {
-  return searchStaticList('nvcr', term);
+  return searchStaticListWithExact('nvcr', term, page, pageSize);
 }
 
 /**
@@ -547,7 +1702,7 @@ async function searchAllRegistries(term, page = 1, pageSize = 20, enabledIds = n
 /**
  * 获取镜像标签 - 根据 Registry 类型选择不同的 API
  */
-async function getImageTags(registryId, imageName, page = 1, pageSize = 100) {
+async function getImageTags(registryId, imageName, page = 1, pageSize = 100, sourceRepository = '') {
   const config = REGISTRY_CONFIGS[registryId];
   if (!config) {
     throw new Error(`不支持的 Registry: ${registryId}`);
@@ -561,7 +1716,7 @@ async function getImageTags(registryId, imageName, page = 1, pageSize = 100) {
     case 'quay':
       return await getQuayTags(imageName, page, pageSize);
     default:
-      return await getOCITags(registryId, imageName);
+      return await getOCITags(registryId, imageName, page, pageSize, sourceRepository);
   }
 }
 
@@ -601,27 +1756,24 @@ async function getDockerHubTags(imageName, page = 1, pageSize = 100) {
  * 获取 Quay.io 镜像标签
  */
 async function getQuayTags(imageName, page = 1, pageSize = 100) {
-  const [namespace, repo] = imageName.includes('/') 
-    ? imageName.split('/')
-    : ['library', imageName];
-  
-  const url = `https://quay.io/api/v1/repository/${namespace}/${repo}/tag/?limit=${pageSize}&page=${page}`;
-  
   try {
-    const response = await axios.get(url, httpOptions);
-    const data = response.data;
+    const { normalized } = parseQuayImageName(imageName);
+    const tags = await fetchAllQuayActiveTags(normalized);
+    const start = (page - 1) * pageSize;
+    const pageItems = tags.slice(start, start + pageSize);
+    const enrichedPage = await mapLimit(
+      pageItems,
+      Math.min(OCI_METADATA_CONCURRENCY, pageItems.length || 1),
+      item => getOCITagMetadata('quay', normalized, item.name, item.originalIndex)
+    );
     
     return {
       registry: 'quay',
-      imageName,
-      count: data.tags?.length || 0,
-      results: (data.tags || []).map(tag => ({
-        name: tag.name,
-        digest: tag.manifest_digest,
-        lastUpdated: tag.last_modified,
-        size: tag.size,
-        images: []
-      }))
+      imageName: normalized,
+      count: tags.length,
+      results: enrichedPage,
+      next: start + pageSize < tags.length ? page + 1 : null,
+      previous: page > 1 ? page - 1 : null
     };
   } catch (error) {
     logger.error(`获取 Quay 标签失败: ${error.message}`);
@@ -632,43 +1784,75 @@ async function getQuayTags(imageName, page = 1, pageSize = 100) {
 /**
  * 获取 OCI Registry 镜像标签（适用于 GCR, MCR, K8s 等）
  */
-async function getOCITags(registryId, imageName) {
+async function getOCITags(registryId, imageName, page = 1, pageSize = 100, sourceRepository = '') {
   const config = REGISTRY_CONFIGS[registryId];
   if (!config || !config.tagsUrl) {
     throw new Error(`Registry ${registryId} 不支持获取标签`);
   }
   
-  // 构建 URL
-  let url;
-  if (imageName.includes('/')) {
-    const [namespace, repo] = imageName.split('/');
-    url = config.tagsUrl
-      .replace('{namespace}', namespace)
-      .replace('{repo}', repo);
-  } else {
-    url = config.tagsUrl.replace('{repo}', imageName);
-  }
+  const normalized = normalizeRegistrySearchTerm(registryId, imageName).imageName;
 
   try {
-    const response = await fetchWithRegistryAuth(url, registryId, imageName);
+    let tags;
+    if (FULL_METADATA_SORT_REGISTRIES.has(registryId)) {
+      // GHCR 的 tags/list 可能包含 main/release/pr/commit 等流水线 tag。
+      // 先按正式版本号倒序排列，再只读取当前页的 manifest/config 元数据，
+      // 避免为了打开第一页而读取全部 tag 的几十/几百个 blob。
+      const sorted = await getSortedOCITagNames(registryId, normalized, sourceRepository);
+      const start = (page - 1) * pageSize;
+      const pageItems = sorted.slice(start, start + pageSize);
+      const enrichedPage = await mapLimit(
+        pageItems,
+        Math.min(OCI_METADATA_CONCURRENCY, pageItems.length || 1),
+        item => getOCITagMetadata(registryId, normalized, item.name, item.originalIndex)
+      );
+      tags = sorted;
+      tags.splice(start, enrichedPage.length, ...enrichedPage);
+    } else {
+      // 其他 OCI Registry（尤其 MCR）可能拥有数千个 tag。全量读取每个 tag 的
+      // manifest/config 会非常慢，因此先按 tag 名做语义化排序，再只补齐当前页元数据。
+      const names = await fetchAllOCITagNames(registryId, normalized);
+      const sorted = names
+        .map((name, originalIndex) => ({ name, originalIndex, lastUpdated: null, size: null, images: [] }))
+        .sort(compareTagItems);
+      const start = (page - 1) * pageSize;
+      const pageItems = sorted.slice(start, start + pageSize);
+      const enrichedPage = await mapLimit(pageItems, Math.min(OCI_METADATA_CONCURRENCY, pageItems.length || 1), item =>
+        getOCITagMetadata(registryId, normalized, item.name, item.originalIndex)
+      );
+      tags = sorted;
+      tags.splice(start, enrichedPage.length, ...enrichedPage);
+    }
 
-    const data = response.data;
-    const tags = data.tags || [];
+    const start = (page - 1) * pageSize;
+    const slice = tags.slice(start, start + pageSize);
 
     return {
       registry: registryId,
-      imageName,
+      imageName: normalized,
       count: tags.length,
-      results: tags.map(tag => ({
-        name: typeof tag === 'string' ? tag : tag.name,
-        digest: typeof tag === 'object' ? tag.digest : null,
-        lastUpdated: null,
-        size: null,
-        images: []
-      }))
+      results: slice.map(tag => ({
+        name: tag.name,
+        digest: tag.digest || null,
+        lastUpdated: tag.lastUpdated || null,
+        size: tag.size || null,
+        images: tag.images || []
+      })),
+      next: start + pageSize < tags.length ? page + 1 : null,
+      previous: page > 1 ? page - 1 : null
     };
   } catch (error) {
     logger.error(`获取 ${registryId} 标签失败: ${error.message}`);
+    const registryErrorCode = error.response?.data?.errors?.[0]?.code;
+    if (error.response?.status === 404 && registryErrorCode === 'NAME_UNKNOWN') {
+      const notFound = new Error(
+        `${REGISTRY_CONFIGS[registryId].name} 中不存在容器镜像「${normalized}」。` +
+        'GitHub 仓库名与 GHCR 容器包名可能不同，请使用实际包名（例如 immich-app/immich-server）。'
+      );
+      notFound.statusCode = 404;
+      notFound.cause = error;
+      throw notFound;
+    }
     throw error;
   }
 }
@@ -695,11 +1879,31 @@ function parseBearerChallenge(header) {
  * 不会返回 401；ghcr / nvcr 等会返回 401 + WWW-Authenticate 挑战，
  * 此时按 Docker Registry 标准流程：向 realm 申请匿名 token 后重试。
  */
-async function fetchWithRegistryAuth(url, registryId, imageName) {
+async function fetchWithRegistryAuth(url, registryId, imageName, extraOptions = {}) {
+  const { skipKnownChallenge = false, ...requestOptions } = extraOptions || {};
   const opts = {
     ...httpOptions,
-    headers: { ...httpOptions.headers, Accept: 'application/json' }
+    ...requestOptions,
+    headers: {
+      ...httpOptions.headers,
+      Accept: 'application/json',
+      ...(requestOptions.headers || {})
+    }
   };
+
+  // 对 GHCR/NVCR 这类必定 Bearer challenge 的 Registry，若已有缓存 token，
+  // 或能按标准 scope 直接换 token，则首个请求就带 Authorization，避免每个 tag
+  // 都先 401 一次。
+  const knownChallenge = skipKnownChallenge ? null : getKnownTokenChallenge(registryId, imageName);
+  if (knownChallenge) {
+    try {
+      const token = await requestBearerToken(registryId, knownChallenge, opts);
+      if (token) opts.headers.Authorization = `Bearer ${token}`;
+    } catch (tokenErr) {
+      logger.debug?.(`预取 ${registryId} Bearer token 失败，回退到 401 challenge: ${tokenErr.message}`);
+    }
+  }
+
   try {
     return await axios.get(url, opts);
   } catch (err) {
@@ -708,19 +1912,9 @@ async function fetchWithRegistryAuth(url, registryId, imageName) {
       const { realm, service, scope } = parseBearerChallenge(authHeader);
       if (realm) {
         try {
-          const tokenUrl = new URL(realm);
-          if (scope) tokenUrl.searchParams.set('scope', scope);
-          if (service) tokenUrl.searchParams.set('service', service);
-          // 若该 Registry 配置了访问凭证，向 token 端点发起请求时附带 Basic 鉴权，
-          // 使 GitHub 等「要求登录」的仓库（如 bitnami 组织）能换取带 read:packages 权限的 token。
-          const tokenOpts = { ...opts };
-          const cred = await getCredentialForAuth(registryId);
-          if (cred) {
-            tokenOpts.headers.Authorization =
-              'Basic ' + Buffer.from(`${cred.username}:${cred.password}`).toString('base64');
-          }
-          const tokenResp = await axios.get(tokenUrl.toString(), tokenOpts);
-          const token = tokenResp.data && (tokenResp.data.token || tokenResp.data.access_token);
+          // 若该 Registry 配置了访问凭证，requestBearerToken 会在 token 端点附带 Basic 鉴权，
+          // 使 GitHub 等「要求登录」的仓库（如 bitnami 组织的镜像）能换取带 read:packages 权限的 token。
+          const token = await requestBearerToken(registryId, { realm, service, scope }, opts, 1);
           if (token) {
             return await axios.get(url, {
               ...opts,
@@ -730,7 +1924,7 @@ async function fetchWithRegistryAuth(url, registryId, imageName) {
         } catch (tokenErr) {
           // token 端点返回 403：该仓库要求登录认证（如 GitHub 上 bitnami 等组织的镜像）
           // 匿名 pull token 被拒绝，需带 read:packages 权限的凭证才能拉取。
-          if (tokenErr.response && tokenErr.response.status === 403) {
+          if (tokenErr.response && [401, 403].includes(tokenErr.response.status)) {
             throw new Error(`仓库「${imageName}」需要登录 ${registryId} 才能查看标签（该平台对该仓库要求认证，请为其配置访问凭证）`);
           }
           logger.error(`获取 ${realm} 匿名 token 失败: ${tokenErr.message}`);
@@ -745,10 +1939,32 @@ async function fetchWithRegistryAuth(url, registryId, imageName) {
  * 懒加载该 Registry 的明文凭证（供 token 端点 Basic 鉴权使用）。
  * 延迟 require 以避免模块加载期潜在的循环依赖；无凭证时返回 null。
  */
-async function getCredentialForAuth(registryId) {
+async function getCredentialForAuth(registryId, options = {}) {
   try {
     const credService = require('./registryCredentialService');
-    return await credService.getPlainCredential(registryId);
+    const cached = await credService.getPlainCredential(registryId);
+    if (cached && !options.refresh) {
+      return cached;
+    }
+
+    const now = Date.now();
+    const throttleKey = registryId;
+    const last = credentialRefreshThrottle.get(throttleKey) || 0;
+    if (options.refresh || !cached) {
+      if (options.refresh || now - last > 60 * 1000) {
+        credentialRefreshThrottle.set(throttleKey, now, 5 * 60 * 1000);
+        try {
+          const synced = await credService.syncFromLiveGoProxyConfig();
+          if (synced > 0 || options.refresh) {
+            const refreshed = await credService.getPlainCredential(registryId);
+            if (refreshed) return refreshed;
+          }
+        } catch (e) {
+          logger.warn(`刷新 ${registryId} Registry 凭证失败: ${e.message}`);
+        }
+      }
+    }
+    return cached;
   } catch (e) {
     return null;
   }
@@ -767,6 +1983,8 @@ module.exports = {
   searchMCR,
   searchElastic,
   searchNVCR,
+  normalizeRegistrySearchTerm,
+  buildRegistryTagsUrl,
   REGISTRY_CONFIGS,
   STATIC_IMAGE_LISTS
 };
