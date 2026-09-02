@@ -275,6 +275,45 @@ const REGISTRY_HOST_ALIASES = {
   'nvcr': ['nvcr.io']
 };
 
+// registry.k8s.io 的 tags/list 会 307 跳转到 Google Artifact Registry。
+// 在部分网络环境里该跳转目标不可达时，核心控制平面镜像可退回到
+// Kubernetes GitHub release tags 作为兜底，避免整页标签视图报错。
+const K8S_RELEASE_TAG_SOURCES = {
+  'kube-apiserver': 'kubernetes/kubernetes',
+  'kube-controller-manager': 'kubernetes/kubernetes',
+  'kube-scheduler': 'kubernetes/kubernetes',
+  'kube-proxy': 'kubernetes/kubernetes'
+};
+
+function isRedirectStatus(status) {
+  return [301, 302, 303, 307, 308].includes(Number(status));
+}
+
+async function requestWithManualRedirects(url, requestOptions, maxRedirects = 3) {
+  let currentUrl = url;
+  let currentOptions = { ...requestOptions, maxRedirects: 0 };
+
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const response = await axios.get(currentUrl, {
+      ...currentOptions,
+      validateStatus: status => (status >= 200 && status < 300) || isRedirectStatus(status)
+    });
+
+    if (!isRedirectStatus(response.status)) {
+      return response;
+    }
+
+    const location = response.headers?.location;
+    if (!location) {
+      return response;
+    }
+
+    currentUrl = new URL(location, currentUrl).toString();
+  }
+
+  throw new Error(`registry.k8s.io 重定向次数过多，无法完成请求: ${url}`);
+}
+
 function getRegistryBaseUrl(registryId) {
   const prefix = REGISTRY_CONFIGS[registryId]?.prefix;
   if (!prefix) throw new Error(`Registry ${registryId} 缺少 prefix 配置`);
@@ -958,6 +997,49 @@ async function fetchAllQuayActiveTags(imageName) {
 
   tags.sort(compareTagItems);
   return setCache(cacheKey, tags);
+}
+
+async function getK8sReleaseFallbackTags(imageName, page = 1, pageSize = 100) {
+  const normalized = normalizeRegistrySearchTerm('k8s', imageName).imageName;
+  const sourceRepository = K8S_RELEASE_TAG_SOURCES[normalized];
+  if (!sourceRepository) return null;
+
+  const cacheKey = `k8s-release-tags:${normalized}`;
+  let items = getCache(cacheKey);
+  if (!items) {
+    const releaseNames = await getGitHubReleaseTagNames(sourceRepository);
+    if (!releaseNames.length) return null;
+
+    items = releaseNames
+      .filter(name => typeof name === 'string' && name.trim())
+      .map((name, originalIndex) => ({
+        name,
+        originalIndex,
+        lastUpdated: null,
+        size: null,
+        images: []
+      }))
+      .sort(compareTagItems);
+    setCache(cacheKey, items, GITHUB_PACKAGE_CACHE_TTL_MS);
+  }
+
+  const start = (page - 1) * pageSize;
+  const pageItems = items.slice(start, start + pageSize);
+
+  return {
+    registry: 'k8s',
+    imageName: normalized,
+    count: items.length,
+    results: pageItems.map(item => ({
+      name: item.name,
+      digest: null,
+      lastUpdated: item.lastUpdated || null,
+      size: item.size || null,
+      images: item.images || []
+    })),
+    next: start + pageSize < items.length ? page + 1 : null,
+    previous: page > 1 ? page - 1 : null
+  };
 }
 
 async function probeImageTags(registryId, imageName) {
@@ -1853,6 +1935,15 @@ async function getOCITags(registryId, imageName, page = 1, pageSize = 100, sourc
       notFound.cause = error;
       throw notFound;
     }
+
+    if (registryId === 'k8s') {
+      const fallback = await getK8sReleaseFallbackTags(normalized, page, pageSize);
+      if (fallback) {
+        logger.warn(`K8s 标签请求失败，回退到 GitHub releases: ${error.message}`);
+        return fallback;
+      }
+    }
+
     throw error;
   }
 }
@@ -1891,6 +1982,14 @@ async function fetchWithRegistryAuth(url, registryId, imageName, extraOptions = 
     }
   };
 
+  const shouldFollowK8sRedirects = registryId === 'k8s';
+  const doRequest = (requestUrl, requestOpts = opts) => {
+    if (shouldFollowK8sRedirects) {
+      return requestWithManualRedirects(requestUrl, requestOpts);
+    }
+    return axios.get(requestUrl, requestOpts);
+  };
+
   // 对 GHCR/NVCR 这类必定 Bearer challenge 的 Registry，若已有缓存 token，
   // 或能按标准 scope 直接换 token，则首个请求就带 Authorization，避免每个 tag
   // 都先 401 一次。
@@ -1905,7 +2004,7 @@ async function fetchWithRegistryAuth(url, registryId, imageName, extraOptions = 
   }
 
   try {
-    return await axios.get(url, opts);
+    return await doRequest(url);
   } catch (err) {
     if (err.response && err.response.status === 401) {
       const authHeader = err.response.headers['www-authenticate'] || '';
@@ -1916,7 +2015,7 @@ async function fetchWithRegistryAuth(url, registryId, imageName, extraOptions = 
           // 使 GitHub 等「要求登录」的仓库（如 bitnami 组织的镜像）能换取带 read:packages 权限的 token。
           const token = await requestBearerToken(registryId, { realm, service, scope }, opts, 1);
           if (token) {
-            return await axios.get(url, {
+            return await doRequest(url, {
               ...opts,
               headers: { ...opts.headers, Authorization: `Bearer ${token}` }
             });

@@ -492,3 +492,93 @@ test('GHCR 可合并源 GitHub 仓库 release 标签，避免大量 PR/commit �
 
   assert.deepEqual(result.results.map(t => t.name), ['v3.1.0', 'v3.0.0', 'v1.132.3', 'v3.2.0-rc.1']);
 });
+
+test('K8s 标签请求会手动跟随 registry.k8s.io 的 307 重定向', async () => {
+  const requestedUrls = [];
+  const service = loadServiceWithAxios({
+    async get(url) {
+      requestedUrls.push(url);
+      if (url === 'https://registry.k8s.io/v2/kube-proxy/tags/list?n=100') {
+        return {
+          status: 307,
+          headers: {
+            location: 'https://us-west2-docker.pkg.dev/v2/k8s-artifacts-prod/images/kube-proxy/tags/list?rid=manual-redirect'
+          },
+          data: ''
+        };
+      }
+      if (url === 'https://us-west2-docker.pkg.dev/v2/k8s-artifacts-prod/images/kube-proxy/tags/list?rid=manual-redirect') {
+        return {
+          status: 200,
+          headers: {},
+          data: {
+            name: 'kube-proxy',
+            tags: ['v1.36.4', 'v1.37.0']
+          }
+        };
+      }
+      if (url === 'https://registry.k8s.io/v2/kube-proxy/manifests/v1.37.0') {
+        return {
+          status: 307,
+          headers: {
+            location: 'https://us-west2-docker.pkg.dev/v2/k8s-artifacts-prod/images/kube-proxy/manifests/v1.37.0?rid=manifest-redirect'
+          },
+          data: ''
+        };
+      }
+      if (url === 'https://us-west2-docker.pkg.dev/v2/k8s-artifacts-prod/images/kube-proxy/manifests/v1.37.0?rid=manifest-redirect') {
+        return {
+          status: 200,
+          headers: {
+            'content-type': 'application/vnd.oci.image.manifest.v1+json',
+            'docker-content-digest': 'sha256:kube-proxy-v1370'
+          },
+          data: {
+            mediaType: 'application/vnd.oci.image.manifest.v1+json',
+            layers: [{ size: 111 }]
+          }
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    }
+  });
+
+  const result = await service.getImageTags('k8s', 'kube-proxy', 1, 1);
+
+  assert.equal(result.count, 2);
+  assert.equal(result.results[0].name, 'v1.37.0');
+  assert.equal(result.results[0].size, 111);
+  assert.ok(requestedUrls.includes('https://registry.k8s.io/v2/kube-proxy/tags/list?n=100'));
+  assert.ok(requestedUrls.includes('https://us-west2-docker.pkg.dev/v2/k8s-artifacts-prod/images/kube-proxy/tags/list?rid=manual-redirect'));
+  assert.ok(requestedUrls.includes('https://registry.k8s.io/v2/kube-proxy/manifests/v1.37.0'));
+  assert.ok(requestedUrls.includes('https://us-west2-docker.pkg.dev/v2/k8s-artifacts-prod/images/kube-proxy/manifests/v1.37.0?rid=manifest-redirect'));
+});
+
+test('K8s registry 网络失败时，核心控制平面镜像回退到 GitHub releases', async () => {
+  const requestedUrls = [];
+  const service = loadServiceWithAxios({
+    async get(url) {
+      requestedUrls.push(url);
+      if (url === 'https://registry.k8s.io/v2/kube-proxy/tags/list?n=100') {
+        throw new Error('Client network socket disconnected before secure TLS connection was established');
+      }
+      if (String(url).startsWith('https://api.github.com/repos/kubernetes/kubernetes/releases?')) {
+        return {
+          headers: {},
+          data: [
+            { tag_name: 'v1.37.0' },
+            { tag_name: 'v1.36.4' },
+            { tag_name: 'v1.36.3' }
+          ]
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    }
+  });
+
+  const result = await service.getImageTags('k8s', 'kube-proxy', 1, 2);
+
+  assert.equal(result.count, 3);
+  assert.deepEqual(result.results.map(t => t.name), ['v1.37.0', 'v1.36.4']);
+  assert.ok(requestedUrls.includes('https://api.github.com/repos/kubernetes/kubernetes/releases?per_page=100&page=1'));
+});
