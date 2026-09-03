@@ -13,6 +13,7 @@ const util = require('util');
 const execPromise = util.promisify(exec);
 const axios = require('axios');
 const logger = require('../logger');
+const { isRestrictedHost, isRestrictedHostDeep } = require('../utils/ssrf');
 
 const PLATFORM = os.platform();
 
@@ -168,7 +169,24 @@ async function runTraceroute(target) {
 async function runHttpTest(target) {
   let url = String(target || '').trim();
   if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
-  const t = sanitizeTarget(new URL(url).hostname);
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    throw new Error('URL 格式无效');
+  }
+  // SSRF 防护：用户可控的 target 决定我们要去连哪个内网主机。
+  // 先做 host 字面量的内网判定；若是域名再做深度 DNS 解析，
+  // 阻止把内网 IP 当作白名单外站来绕过。
+  if (isRestrictedHost(parsed.hostname)) {
+    logger.warn(`SSRF 拦截(http): 拒绝内网/保留地址 ${parsed.hostname}`);
+    throw new Error('不允许测试内网/保留地址');
+  }
+  if (await isRestrictedHostDeep(parsed.hostname)) {
+    logger.warn(`SSRF 拦截(http): 域名解析到内网/保留地址 ${parsed.hostname}`);
+    throw new Error('不允许测试内网/保留地址');
+  }
+  const t = sanitizeTarget(parsed.hostname);
 
   const start = Date.now();
   const dnsStart = start;
@@ -231,6 +249,11 @@ async function runHttpTest(target) {
 // ---------- DNS 测试 ----------
 async function runDnsTest(target) {
   const t = sanitizeTarget(target);
+  // SSRF 防护：禁止解析内网/保留域，避免用 DNS 通道扫内网
+  if (isRestrictedHost(t)) {
+    logger.warn(`SSRF 拦截(dns): 拒绝内网/保留地址 ${t}`);
+    throw new Error('不允许解析内网/保留地址');
+  }
   const start = Date.now();
   let records = [];
   let error = null;
@@ -258,6 +281,15 @@ async function runDnsTest(target) {
 // ---------- TCP 端口测试 ----------
 async function runTcpTest(target, port = 80) {
   const t = sanitizeTarget(target);
+  // SSRF 防护：禁止连接内网/保留地址
+  if (isRestrictedHost(t)) {
+    logger.warn(`SSRF 拦截(tcp): 拒绝内网/保留地址 ${t}`);
+    throw new Error('不允许连接内网/保留地址');
+  }
+  if (await isRestrictedHostDeep(t)) {
+    logger.warn(`SSRF 拦截(tcp): 域名解析到内网/保留地址 ${t}`);
+    throw new Error('不允许连接内网/保留地址');
+  }
   const p = parseInt(port, 10) || 80;
   if (p < 1 || p > 65535) throw new Error('端口范围 1-65535');
 
@@ -318,23 +350,36 @@ const SPEED_PRESETS = [
 ];
 
 // 用单一 URL 执行一次测速
-function runSingleSpeedTest(targetUrl, durationMs = 8000) {
+async function runSingleSpeedTest(targetUrl, durationMs = 8000) {
   const start = Date.now();
   let totalBytes = 0;
 
-  return new Promise((resolve, reject) => {
-    let parsed;
-    try {
-      parsed = new URL(targetUrl);
-    } catch (e) {
-      return reject(new Error('测速地址格式无效'));
-    }
+  let parsed;
+  try {
+    parsed = new URL(targetUrl);
+  } catch (e) {
+    throw new Error('测速地址格式无效');
+  }
 
-    const isHttps = parsed.protocol === 'https:';
-    const client = isHttps ? https : http;
-    const agent = isHttps
-      ? new https.Agent({ rejectUnauthorized: false, servername: parsed.hostname })
-      : new http.Agent();
+  // SSRF 防护：speed 节点虽然来自白名单，但用户可以自定义 primaryUrl
+  // 走任意 URL；这正是上次扫描中命中 169.254.169.254 等元数据服务的入口。
+  // 内置 SPEED_PRESETS 默认都是外网，但 primaryUrl 仍必须验证。
+  if (isRestrictedHost(parsed.hostname)) {
+    logger.warn(`SSRF 拦截(speed): 拒绝内网/保留地址 ${parsed.hostname}`);
+    throw new Error('不允许测速内网/保留地址');
+  }
+  if (await isRestrictedHostDeep(parsed.hostname)) {
+    logger.warn(`SSRF 拦截(speed): 域名解析到内网/保留地址 ${parsed.hostname}`);
+    throw new Error('不允许测速内网/保留地址');
+  }
+
+  const isHttps = parsed.protocol === 'https:';
+  const client = isHttps ? https : http;
+  const agent = isHttps
+    ? new https.Agent({ rejectUnauthorized: false, servername: parsed.hostname })
+    : new http.Agent();
+
+  return new Promise((resolve, reject) => {
 
     const req = client.get(targetUrl, {
       timeout: 15000,

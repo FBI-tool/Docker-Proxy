@@ -5,11 +5,66 @@ const api = axios.create({
   withCredentials: true
 })
 
+// =====================================================================
+// H1 配套：默认密码会话触发 403 NEED_CHANGE_PASSWORD 时的全局锁屏兜底
+//
+// 登录页 Login.vue 自带更丰富的「带默认凭证提示」dialog（首次登录即拦截）。
+// 这里专门处理「点稍后进入主界面后再发起的 API 请求」场景——
+// 后端 requireFreshPassword 会把所有非白名单接口返 403，没拦截的话 dashboard /
+// 列表会静默卡死，用户完全搞不清状况。
+//
+// 关键设计：
+//  - 用动态 import 加载 router / element-plus：避免 services ↔ router ↔ views
+//    形成循环依赖（services 已被 Login.vue / Landing.vue 等视图静态引入）。
+//  - _pwdDialogShown 闸门：并发 403（dashboard 一启动就拉 5 个接口）只弹一次。
+//  - 当前已在 user 中心页时不重复 push：避免 vue-router 4 的 NavigationDuplicated。
+// =====================================================================
+let _pwdDialogShown = false
+const _loadRouter = () => import('../router').then(m => m.default)
+const _loadElMsgBox = () => import('element-plus').then(m => m.ElMessageBox)
+
+async function _handleDefaultPasswordLockout() {
+  try {
+    const [router, { ElMessageBox }] = await Promise.all([
+      _loadRouter(),
+      _loadElMsgBox()
+    ])
+    if (router.currentRoute?.value?.name !== 'user') {
+      // 已在 /admin/user 时跳过 push；vue-router 4 对重复路由会抛 NavigationDuplicated
+      try {
+        await router.push({ name: 'user', query: { forceChange: '1' } })
+      } catch (e) { /* 静默吞掉 */ }
+    }
+    await ElMessageBox.alert(
+      '当前会话仍使用出厂默认密码，请先修改密码后再使用其他功能',
+      '安全提示',
+      {
+        confirmButtonText: '立即修改',
+        showClose: false,
+        type: 'warning'
+      }
+    )
+  } catch (e) {
+    // 拦截器自身失败不应影响主流程；闸门仍需在 finally 重置，否则后续 403 全静音
+  } finally {
+    _pwdDialogShown = false
+  }
+}
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response && err.response.status === 401) {
       // 会话过期，交给调用方处理
+    }
+    // 默认密码会话触发 403 + NEED_CHANGE_PASSWORD：全局兜底拦截
+    if (
+      err?.response?.status === 403 &&
+      err.response.data?.code === 'NEED_CHANGE_PASSWORD' &&
+      !_pwdDialogShown
+    ) {
+      _pwdDialogShown = true
+      _handleDefaultPasswordLockout()
     }
     return Promise.reject(err)
   }

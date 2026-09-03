@@ -341,6 +341,16 @@
           </button>
         </div>
         <template v-else>
+          <!-- 数据降级提示：回退到 GitHub release、或部分元数据读取失败时，
+               必须让用户知道当前列表不是 registry 的一手数据 -->
+          <div v-if="tagView.source === 'github-release'" class="tag-degraded-banner" role="status">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>{{ t('landing.tagsDegradedFallback') }}</span>
+          </div>
+          <div v-else-if="tagView.metadataFailed" class="tag-degraded-banner is-partial" role="status">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>{{ t('landing.tagsDegradedPartial', { count: tagView.metadataFailed }) }}</span>
+          </div>
           <div class="tag-actions">
             <div class="tag-search-container">
               <span class="tag-search-ic" aria-hidden="true">
@@ -578,6 +588,7 @@ import {
 import { getMenuIconSvg as getMenuIconSvgFromLib } from '../lib/menuIcons'
 import LangSwitch from '../components/LangSwitch.vue'
 import { useTheme } from '../composables/useTheme'
+import { sanitizeHtml } from '../lib/safeHtml'
 
 marked.setOptions({
   breaks: true,
@@ -938,8 +949,10 @@ function renderDescription(text) {
   const raw = String(text || '').trim()
   if (!raw) return '<span class="desc-empty">' + t('landing.noDescription') + '</span>'
   try {
+    // Docker Hub 仓库描述来自第三方，必须在写入 v-html 之前先做黑名单
+    // 清洗：阻断 <script>/on*/javascript: 等 XSS 通道。
     const html = marked.parseInline(raw, { breaks: false })
-    return html.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
+    return sanitizeHtml(html.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" '))
   } catch (e) {
     return escapeHtml(raw)
   }
@@ -1154,6 +1167,11 @@ async function loadTagsPage(p) {
       tags,
       count: total,
       totalPages: Math.max(1, Math.ceil(total / TAG_PAGE_SIZE)),
+      // 后端可能在 registry 不可达时回退到 GitHub release，或本页部分标签
+      // 元数据读取失败。这两个字段驱动页面顶部的「降级提示」banner，
+      // 不传的话用户会误以为看到的是 registry 的一手数据。
+      source: data?.source || 'registry',
+      metadataFailed: data?.metadataFailed || 0,
       loading: false
     }
   } catch (e) {
@@ -1301,7 +1319,10 @@ async function loadDoc(d) {
 function renderMd(md) {
   if (!md) return ''
   try {
-    return marked.parse(md)
+    // marked 不会自己 sanitize。文档内容来源是后端管理员，但会被
+    // 拥有合法 session 的用户编辑，且历史上未见 XSS 防护代码，因此
+    // 输出后再过一次 sanitizeHtml 把 <script>/on*/javascript: 一并清洗。
+    return sanitizeHtml(marked.parse(md))
   } catch {
     return md
   }
@@ -1557,7 +1578,7 @@ onUnmounted(() => {
 .hd-inner {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 12px 30px;
+  padding: 14px 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1578,7 +1599,7 @@ onUnmounted(() => {
 }
 .hd-logo:hover { background: rgba(61, 124, 244, 0.08); }
 .hd-logo-img {
-  height: 28px;
+  height: 40px;
   width: auto;
   max-width: 210px;
   display: block;

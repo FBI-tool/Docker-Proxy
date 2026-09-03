@@ -8,6 +8,44 @@ const axios = require('axios');
 const crypto = require('crypto');
 const logger = require('../logger');
 
+// 占位符集合：来自历史默认值、示例值或明显弱口令，必须在启动时强制覆盖。
+// 这是为了防止生产部署因 .env.example 漏改、docker-compose 模板复制粘贴
+// 等常见误操作导致 GO_PROXY_ADMIN_TOKEN 实际为空或可猜测，管理端点完全裸奔。
+const ADMIN_TOKEN_PLACEHOLDERS = new Set([
+  '',
+  'change-me',
+  'changeme',
+  'please-change-me',
+  'admin',
+  'admin-token',
+  'token',
+  'your-strong-token',
+  'YOUR_STRONG_TOKEN'
+]);
+const ADMIN_TOKEN_MIN_LENGTH = 16;
+
+function validateAdminTokenAtStartup() {
+  const token = process.env.GO_PROXY_ADMIN_TOKEN || '';
+  if (ADMIN_TOKEN_PLACEHOLDERS.has(token)) {
+    logger.fatal('【安全】GO_PROXY_ADMIN_TOKEN 未设置或仍为占位符。所有 /-/* 管理端点将退化为裸奔。请立即在环境变量/Compose/Helm 中注入至少 16 位强随机值并重启。');
+    // 不直接 process.exit：运维可能希望先看到日志再决定如何处置；
+    // 但继续运行等于带病上线，所以给出 fatal 后抛错中断启动。
+    throw new Error('GO_PROXY_ADMIN_TOKEN missing or weak; refusing to start in production mode');
+  }
+  if (token.length < ADMIN_TOKEN_MIN_LENGTH) {
+    logger.fatal(`【安全】GO_PROXY_ADMIN_TOKEN 长度 ${token.length} < ${ADMIN_TOKEN_MIN_LENGTH}，拒绝启动以避免管理端点被暴力枚举。请生成一个更长随机值。`);
+    throw new Error('GO_PROXY_ADMIN_TOKEN too short; refusing to start in production mode');
+  }
+  // 仅警告，开发/测试环境短密钥是常见情况
+  if (/^[a-z]+$/.test(token) || /^\d+$/.test(token) || /^(.)\1+$/.test(token)) {
+    logger.warn('【安全】GO_PROXY_ADMIN_TOKEN 形态过于简单（纯字母 / 纯数字 / 全相同字符），强烈建议替换为高熵随机值。');
+  }
+  logger.success('GO_PROXY_ADMIN_TOKEN 校验通过（长度 OK，非占位符）');
+}
+
+// 必须在所有 axios 调用之前完成校验；导出供 server.js 启动钩子调用。
+// （合并到文件末尾最终 module.exports）
+
 // Go 代理管理接口地址（默认指向 go-proxy:5001，docker 网络内可达）
 // 优先级：
 //   1. GO_PROXY_ADMIN_URL（环境变量；docker-compose 已设置成 http://go-proxy:5001）
@@ -173,5 +211,9 @@ module.exports = {
   goProxyService: new GoProxyService(),
   upstreamError,
   ADMIN_BASE,
-  decryptCredentialSyncPayload
+  decryptCredentialSyncPayload,
+  // 启动期强校验入口，由 server.js 在 listen 之前调用
+  validateAdminTokenAtStartup,
+  ADMIN_TOKEN_PLACEHOLDERS,
+  ADMIN_TOKEN_MIN_LENGTH
 };

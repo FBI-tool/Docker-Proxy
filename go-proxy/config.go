@@ -48,6 +48,15 @@ type ServerConfig struct {
 	WriteTimeout int    `yaml:"write_timeout" json:"write_timeout"` // seconds; 0 -> unlimited (needed for streaming large blobs)
 	IdleTimeout  int    `yaml:"idle_timeout" json:"idle_timeout"`   // seconds; 0 -> 120
 	AdminListen  string `yaml:"admin_listen" json:"admin_listen"`   // management API address, default :5001 (NOT publicly exposed)
+
+	// StatsIdleTimeout is the duration after which an unused per-client traffic
+	// record (lastSeen older than the cutoff) is evicted by the stats janitor.
+	// 0 disables janitor cleanup and retains records indefinitely (NOT recommended:
+	// unbounded growth from scanning clients). Seconds; 0 -> 3600 (1h).
+	StatsIdleTimeout int `yaml:"stats_idle_timeout" json:"stats_idle_timeout"`
+	// StatsJanitorInterval is how often the janitor sweeps stale records.
+	// Seconds; 0 -> 300 (5min). Should be << StatsIdleTimeout.
+	StatsJanitorInterval int `yaml:"stats_janitor_interval" json:"stats_janitor_interval"`
 }
 
 // AccessControlMode enumerates the IP filtering modes.

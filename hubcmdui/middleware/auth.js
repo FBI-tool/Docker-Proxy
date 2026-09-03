@@ -4,6 +4,38 @@
 const logger = require('../logger');
 
 /**
+ * 需要登录拦截，但允许"仍在使用出厂默认密码"的用户访问 password/username 修改入口。
+ * 用法：`app.use('/api/xxx', requireLogin, requireFreshPassword, handler)`
+ * 行为：
+ *  - 入口必须先经过 requireLogin（确保 req.session.user 存在）。
+ *  - 若 req.session.passwordIsDefault === true，则只放行 change-password / change-username / logout / check-session / user-info。
+ *  - 其它 API 一律 403 + NEED_CHANGE_PASSWORD，引导前端弹出强制改密弹窗。
+ */
+const PASSWORD_CHANGE_WHITELIST = [
+  '/api/change-password',
+  '/api/change-username',
+  '/api/logout',
+  '/api/check-session',
+  '/api/user-info'
+];
+
+function requireFreshPassword(req, res, next) {
+  // 未登录场景不应触发此中间件；调用顺序保证 requireLogin 在前，这里只是兜底
+  if (!req.session || !req.session.user) return next();
+  if (!req.session.passwordIsDefault) return next();
+  const url = (req.originalUrl || req.url || '').split('?')[0];
+  if (PASSWORD_CHANGE_WHITELIST.some(p => url === p || url.startsWith(p + '/'))) {
+    return next();
+  }
+  logger.warn(`拒绝默认密码会话访问 ${req.method} ${url}`);
+  return res.status(403).json({
+    error: '当前会话仍使用出厂默认密码，请先修改密码后再使用',
+    code: 'NEED_CHANGE_PASSWORD',
+    requireChangePassword: true
+  });
+}
+
+/**
  * 检查是否已登录的中间件
  */
 function requireLogin(req, res, next) {
@@ -15,10 +47,11 @@ function requireLogin(req, res, next) {
         url.startsWith('/api/metrics/history') ||
         url.startsWith('/api/monitoring-config') ||
         url.startsWith('/api/toggle-monitoring') ||
-        url.startsWith('/api/test-notification') ||
         url.includes('/docker/status')) {
         return next(); // 这些API路径不需要登录
     }
+    // 注意：/api/test-notification 已不再白名单——它会主动外发请求到用户的
+    // webhook / Telegram，必须登录后才会触发，避免被未登录爬虫利用为 SSRF。
     
     // 检查用户是否登录
     if (req.session && req.session.user) {
@@ -87,6 +120,7 @@ function securityHeaders(req, res, next) {
 
 module.exports = {
   requireLogin,
+  requireFreshPassword,
   sessionActivity,
   sanitizeRequestBody,
   securityHeaders

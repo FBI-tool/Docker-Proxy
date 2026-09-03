@@ -138,6 +138,53 @@ bash -c "$(curl -fsSL https://ghp.ci/https://raw.githubusercontent.com/dqzboy/Do
 
 ---
 
+## 🛠 本地开发
+
+面向参与二次开发、调试、或本地构建镜像的开发者。两个子项目（`go-proxy/` 和 `hubcmdui/`）**互相独立**，可单独跑起来。
+
+### go-proxy（Go 后端）
+
+**前置**：Go ≥ 1.23（`go-proxy/go.mod` 中明确要求 1.23.0）
+
+```bash
+cd go-proxy
+
+# 方式 A：自动发现当前目录下的 config.local.yaml > config.yaml > config.example.yaml
+go run .
+
+# 方式 B：显式指定配置文件
+go run . ./config.local.yaml
+```
+
+服务启动后：
+
+| 端口 | 用途 | 暴露范围 |
+| --- | --- | --- |
+| `:5000` | OCI Registry 反向代理（`/v2/` 主入口） | 公网 / 反代后 |
+| `:5001` | 管理 API（`/-/healthz`、`/-/config`、`/-/reload`、`/-/stats`、`/-/credentials`） | **仅内网** |
+
+> ⚠️ **关于 `GO_PROXY_ADMIN_TOKEN`**：管理 API 走的是独立 admin token 鉴权，且**启动期会强校验**——token 为占位符（`change-me` / `admin` / 空串等）或长度 < 16 会**直接拒绝启动**。本地开发至少临时设一个 16 位以上的随机值：
+>
+> ```bash
+> export GO_PROXY_ADMIN_TOKEN="$(openssl rand -hex 16)"
+> ```
+
+### hubcmdui（Web UI）
+
+**前置**：Node.js ≥ 18（推荐 20 LTS）
+
+```bash
+cd hubcmdui
+npm install
+
+# 启动开发服务
+npm run dev
+```
+
+服务默认监听 `:3000`，管理入口 `http://localhost:3000/admin`，默认账号 `root / admin@123`（**首次登录强制改密**）
+
+---
+
 ## 💌 推广
 
 <table>

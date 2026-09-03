@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -48,6 +49,15 @@ type Proxy struct {
 	// Per-client traffic accounting (in-memory; reset on restart or via /-/stats?reset=1).
 	statsMux    sync.Mutex
 	clientStats map[string]*clientStat
+
+	// statsJanitorCancel terminates the background sweeper goroutine that
+	// evicts clientStat entries idle longer than statsIdleTimeout. Without this
+	// the map would grow unbounded under scanner traffic (each new source IP
+	// adds an entry that is never reclaimed). On reload, the previous janitor
+	// is cancelled before a new one is started.
+	statsJanitorCancel context.CancelFunc
+	statsIdleTimeout   time.Duration
+	statsSweepInterval time.Duration
 
 	// acl is the compiled IP allow/deny rules. Rebuilt on every reload.
 	// Guarded by routeMux; a single pointer swap is safe to read without the
@@ -107,7 +117,97 @@ func NewProxy(cfg *Config) *Proxy {
 	p.hostIndex = idx
 	p.defaultReg = def
 	p.acl = buildACL(&cfg.AccessControl)
+	p.applyStatsConfig(cfg)
+	p.startStatsJanitor()
 	return p
+}
+
+// applyStatsConfig reads stats timeouts from cfg and stores the resolved
+// durations. Validation: idle timeout must be > sweep interval; if not, the
+// janitor cannot make meaningful progress and we fall back to safe defaults.
+func (p *Proxy) applyStatsConfig(cfg *Config) {
+	idleSec := cfg.Server.StatsIdleTimeout
+	if idleSec <= 0 {
+		idleSec = 3600 // 1h default
+	}
+	sweepSec := cfg.Server.StatsJanitorInterval
+	if sweepSec <= 0 {
+		sweepSec = 300 // 5min default
+	}
+	idle := time.Duration(idleSec) * time.Second
+	sweep := time.Duration(sweepSec) * time.Second
+	if sweep >= idle {
+		// Janitor interval must be strictly smaller than idle timeout, otherwise
+		// every sweep sees everything as stale on the first iteration and churns.
+		// Floor to idle/4 to keep a healthy ratio while preserving the user's intent.
+		sweep = idle / 4
+		if sweep < 30*time.Second {
+			sweep = 30 * time.Second
+		}
+		log.Printf("[WARN] stats janitor interval (%s) >= idle timeout (%s), clamped sweep to %s", sweep, idle, sweep)
+	}
+	p.statsIdleTimeout = idle
+	p.statsSweepInterval = sweep
+}
+
+// startStatsJanitor spawns the background sweeper goroutine. Cancelling the
+// returned context stops it. safe to call multiple times: the previous janitor
+// is cancelled first.
+func (p *Proxy) startStatsJanitor() {
+	p.statsMux.Lock()
+	if p.statsJanitorCancel != nil {
+		p.statsJanitorCancel()
+		p.statsJanitorCancel = nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p.statsJanitorCancel = cancel
+	p.statsMux.Unlock()
+
+	go func() {
+		// Use a ticker rather than a sleep loop so back-to-back reloads do not
+		// pile up overlapping sweeps; the cancel() call above is what actually
+		// returns from select{}.
+		ticker := time.NewTicker(p.statsSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				p.cleanupIdleStats()
+			}
+		}
+	}()
+}
+
+// cleanupIdleStats drops per-client traffic records idle longer than the
+// configured timeout. The walk + delete is O(n) over the stats map; with a
+// 5-minute sweep cadence and an idle cutoff of 1h this is well within budget
+// (the map only ever contains entries from the last hour).
+func (p *Proxy) cleanupIdleStats() {
+	cutoff := time.Now().Add(-p.statsIdleTimeout)
+	p.statsMux.Lock()
+	defer p.statsMux.Unlock()
+	removed := 0
+	for ip, st := range p.clientStats {
+		if st.LastSeen.Before(cutoff) {
+			delete(p.clientStats, ip)
+			removed++
+		}
+	}
+	if removed > 0 {
+		log.Printf("[stats] swept %d idle client records (cutoff=%s)", removed, cutoff.Format(time.RFC3339))
+	}
+}
+
+// stopStatsJanitor cancels the background sweeper, primarily for tests.
+func (p *Proxy) stopStatsJanitor() {
+	p.statsMux.Lock()
+	defer p.statsMux.Unlock()
+	if p.statsJanitorCancel != nil {
+		p.statsJanitorCancel()
+		p.statsJanitorCancel = nil
+	}
 }
 
 // reload swaps in a new configuration without dropping in-flight requests.
@@ -134,19 +234,23 @@ func (p *Proxy) reload(cfg *Config) {
 	p.cacheMux.Lock()
 	p.tokenCache = make(map[string]tokenEntry)
 	p.cacheMux.Unlock()
+	// Re-apply stats idle/interval in case the operator tuned them in the new
+	// config, then restart the janitor to pick up the new sweep cadence.
+	p.applyStatsConfig(cp)
+	p.startStatsJanitor()
 }
 
 // resolveRegistry picks an upstream based on the request Host (or X-Forwarded-Host
 // when running behind a reverse proxy such as nginx/Caddy).
 func (p *Proxy) resolveRegistry(r *http.Request) *RegistryConfig {
-	host := strings.ToLower(strings.SplitN(r.Host, ":", 2)[0])
+	host := strings.ToLower(hostOnly(r.Host))
 	p.routeMux.RLock()
 	if reg, ok := p.hostIndex[host]; ok {
 		p.routeMux.RUnlock()
 		return reg
 	}
 	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
-		fh := strings.ToLower(strings.SplitN(fwd, ":", 2)[0])
+		fh := strings.ToLower(hostOnly(fwd))
 		if reg, ok := p.hostIndex[fh]; ok {
 			p.routeMux.RUnlock()
 			return reg
@@ -155,6 +259,38 @@ func (p *Proxy) resolveRegistry(r *http.Request) *RegistryConfig {
 	def := p.defaultReg
 	p.routeMux.RUnlock()
 	return def
+}
+
+// hostOnly strips the port from an HTTP Host header value, with full support for
+// IPv6 literals. The naive `strings.SplitN(h, ":", 2)[0]` previously used in
+// resolveRegistry silently corrupted bracketed IPv6 literals:
+//
+//	"[2001:db8::1]:5000" -> "[2001"   (BUG: missing the inner host)
+//	"::1"               -> ""         (BUG: SplitN gives an empty head)
+//
+// RFC 3986 requires bracketed form for IPv6 literals in URIs/Host headers, but
+// the previous code never enforced that, and naked `::1` is still common in
+// X-Forwarded-Host from upstream proxies that failed to normalize. We handle:
+//   - "[ipv6]:port"   -> "ipv6"
+//   - "[ipv6]"        -> "ipv6"
+//   - "host:port"     -> "host"
+//   - "host"          -> "host"
+//   - "::1"           -> "::1" (fallback; rare but possible)
+func hostOnly(h string) string {
+	if h == "" {
+		return ""
+	}
+	// net.SplitHostPort correctly handles both "host:port" and "[ipv6]:port"
+	// and rejects everything else with an "address" error we treat as "no port".
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		return host
+	}
+	// bracketed IPv6 literal without port, e.g. "[::1]".
+	if strings.HasPrefix(h, "[") && strings.HasSuffix(h, "]") && len(h) >= 2 {
+		return h[1 : len(h)-1]
+	}
+	// Already a bare hostname or naked IPv6 literal; return as-is.
+	return h
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {

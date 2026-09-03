@@ -137,6 +137,8 @@ const GITHUB_PACKAGE_CACHE_TTL_MS = parsePositiveIntEnv(
   'GITHUB_PACKAGE_CACHE_TTL_MS',
   30 * 60 * 1000
 );
+// 拉取 GitHub releases 时的分页上限，防止 Link 头异常导致无限翻页。
+const GITHUB_RELEASE_MAX_PAGES = parsePositiveIntEnv('GITHUB_RELEASE_MAX_PAGES', 20);
 
 function getCache(key) {
   const value = cacheStore.get(key);
@@ -289,6 +291,28 @@ function isRedirectStatus(status) {
   return [301, 302, 303, 307, 308].includes(Number(status));
 }
 
+// registry.k8s.io 的 307 目标是一批完全不同的主机：tags/manifests 跳到
+// us-west2-docker.pkg.dev，blobs 跳到 cdn.registry.k8s.io。Registry 的
+// Authorization 只对原主机有效，转发过去既没有意义，也可能在部分代理环境下
+// 引发 TLS/连接异常，更不该把凭证交给第三方主机——这一点在 fetchBlob 里已经
+// 有明确约定，手工跟随的链路必须保持一致。
+function stripCrossHostAuth(currentUrl, nextUrl, requestOptions) {
+  let crossHost = false;
+  try {
+    crossHost = new URL(nextUrl, currentUrl).host !== new URL(currentUrl).host;
+  } catch {
+    crossHost = true;
+  }
+  if (!crossHost) return requestOptions;
+
+  const headers = { ...(requestOptions.headers || {}) };
+  delete headers.Authorization;
+  delete headers.authorization;
+  delete headers.Cookie;
+  delete headers.cookie;
+  return { ...requestOptions, headers };
+}
+
 async function requestWithManualRedirects(url, requestOptions, maxRedirects = 3) {
   let currentUrl = url;
   let currentOptions = { ...requestOptions, maxRedirects: 0 };
@@ -305,10 +329,13 @@ async function requestWithManualRedirects(url, requestOptions, maxRedirects = 3)
 
     const location = response.headers?.location;
     if (!location) {
-      return response;
+      // 重定向状态码不带 Location 属于协议错误，按成功返回会让调用方拿到空 data 却无从察觉。
+      throw new Error(`registry 返回 ${response.status} 重定向但未携带 Location: ${currentUrl}`);
     }
 
-    currentUrl = new URL(location, currentUrl).toString();
+    const nextUrl = new URL(location, currentUrl).toString();
+    currentOptions = stripCrossHostAuth(currentUrl, nextUrl, currentOptions);
+    currentUrl = nextUrl;
   }
 
   throw new Error(`registry.k8s.io 重定向次数过多，无法完成请求: ${url}`);
@@ -341,8 +368,19 @@ function isDigestLikeTag(tag) {
   return /^sha256[-:][0-9a-f]{64}$/i.test(String(tag || ''));
 }
 
-function isQuayArtifactTag(tag) {
+// Cosign 签名 / SLSA 证明会产生 sha256-xxx.sig、sha256-xxx.att 这类附属 tag。
+// registry.k8s.io 的 tags/list 会把它们和正常版本 tag 混在一起返回（kube-proxy
+// 实测 1421 个 tag 中有 295 个是 .sig），不过滤会虚高 count 并让尾部分页出现整屏签名。
+function isSignatureArtifactTag(tag) {
   return /\.(att|sig)$/i.test(String(tag || '').trim());
+}
+
+// 这些 Registry 的 tags/list 会混出签名 tag，且没有像 Quay 那样的
+// onlyActiveTags 参数可用，只能在客户端过滤。
+const SIGNATURE_TAG_FILTERED_REGISTRIES = new Set(['k8s']);
+
+function isQuayArtifactTag(tag) {
+  return isSignatureArtifactTag(tag);
 }
 
 function isValidDate(value) {
@@ -626,7 +664,8 @@ function parseNextLink(linkHeader, currentUrl) {
 }
 
 async function fetchAllOCITagNames(registryId, imageName) {
-  const cacheKey = `oci-tags:names:${registryId}:${imageName}:${MAX_OCI_TAGS}`;
+  const filterSignatures = SIGNATURE_TAG_FILTERED_REGISTRIES.has(registryId) && !INCLUDE_DIGEST_LIKE_TAGS;
+  const cacheKey = `oci-tags:names:${registryId}:${imageName}:${MAX_OCI_TAGS}:sig=${filterSignatures ? 'off' : 'on'}`;
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
@@ -640,6 +679,7 @@ async function fetchAllOCITagNames(registryId, imageName) {
     for (const tag of batch) {
       const name = typeof tag === 'string' ? tag : tag?.name;
       if (!name || seen.has(name)) continue;
+      if (filterSignatures && isSignatureArtifactTag(name)) continue;
       seen.add(name);
       tags.push(name);
       if (tags.length >= MAX_OCI_TAGS) break;
@@ -861,8 +901,12 @@ async function getOCITagMetadata(registryId, imageName, tagName, originalIndex =
     return enriched;
   } catch (error) {
     logger.warn(`读取 ${registryId}/${imageName}:${tagName} 元数据失败: ${error.message}`);
-    setCache(cacheKey, base, 60 * 1000);
-    return base;
+    // metadataFailed 是给调用方统计「本页有多少条元数据没拿到」用的内部标记。
+    // 单个 tag 失败不应该让整页标签视图报错，但也不能让调用方无从区分
+    // 「确实没有元数据」和「请求失败了」——后者需要触发回退或降级提示。
+    const failed = { ...base, metadataFailed: true };
+    setCache(cacheKey, failed, 60 * 1000);
+    return failed;
   }
 }
 
@@ -999,6 +1043,11 @@ async function fetchAllQuayActiveTags(imageName) {
   return setCache(cacheKey, tags);
 }
 
+// 标签数据的来源。返回体带上它，前端才能把「registry 真实标签」和
+// 「GitHub release 版本号」区分开，避免把后者当成可直接拉取的镜像标签展示。
+const REGISTRY_TAG_SOURCE = 'registry';
+const K8S_FALLBACK_SOURCE = 'github-release';
+
 async function getK8sReleaseFallbackTags(imageName, page = 1, pageSize = 100) {
   const normalized = normalizeRegistrySearchTerm('k8s', imageName).imageName;
   const sourceRepository = K8S_RELEASE_TAG_SOURCES[normalized];
@@ -1007,15 +1056,16 @@ async function getK8sReleaseFallbackTags(imageName, page = 1, pageSize = 100) {
   const cacheKey = `k8s-release-tags:${normalized}`;
   let items = getCache(cacheKey);
   if (!items) {
-    const releaseNames = await getGitHubReleaseTagNames(sourceRepository);
-    if (!releaseNames.length) return null;
+    const releases = await getGitHubReleases(sourceRepository);
+    if (!releases.length) return null;
 
-    items = releaseNames
-      .filter(name => typeof name === 'string' && name.trim())
-      .map((name, originalIndex) => ({
-        name,
+    items = releases
+      .filter(release => typeof release?.name === 'string' && release.name.trim())
+      .map((release, originalIndex) => ({
+        name: release.name,
         originalIndex,
-        lastUpdated: null,
+        // release 的发布时间不能等同于镜像构建时间，但比整列空着有用得多。
+        lastUpdated: release.publishedAt || null,
         size: null,
         images: []
       }))
@@ -1029,6 +1079,8 @@ async function getK8sReleaseFallbackTags(imageName, page = 1, pageSize = 100) {
   return {
     registry: 'k8s',
     imageName: normalized,
+    source: K8S_FALLBACK_SOURCE,
+    degraded: true,
     count: items.length,
     results: pageItems.map(item => ({
       name: item.name,
@@ -1040,6 +1092,17 @@ async function getK8sReleaseFallbackTags(imageName, page = 1, pageSize = 100) {
     next: start + pageSize < items.length ? page + 1 : null,
     previous: page > 1 ? page - 1 : null
   };
+}
+
+// 回退自身失败（GitHub 不可达 / 限流 / 返回异常结构）时不能顶掉原始的
+// registry 错误，否则用户会看到一个和真实问题毫无关系的报错。
+async function tryK8sReleaseFallback(imageName, page, pageSize, context) {
+  try {
+    return await getK8sReleaseFallbackTags(imageName, page, pageSize);
+  } catch (error) {
+    logger.warn(`K8s 回退到 GitHub releases 失败（${context}），保留原始结果: ${error.message}`);
+    return null;
+  }
 }
 
 async function probeImageTags(registryId, imageName) {
@@ -1382,30 +1445,54 @@ function normalizeGitHubRepository(sourceRepository) {
   return match ? `${match[1]}/${match[2]}` : '';
 }
 
-async function getGitHubReleaseTagNames(sourceRepository) {
+async function fetchGitHubReleasePage(repository, page, credential) {
+  const url = `https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}`;
+  const response = await axios.get(url, getGitHubApiRequestOptions(credential));
+  const batch = Array.isArray(response.data) ? response.data : [];
+  return { batch, hasNext: Boolean(parseNextLink(response.headers?.link, url)) };
+}
+
+async function fetchAllGitHubReleases(repository, credential) {
+  const releases = [];
+  const seen = new Set();
+  let page = 1;
+
+  while (page <= GITHUB_RELEASE_MAX_PAGES) {
+    const { batch, hasNext } = await fetchGitHubReleasePage(repository, page, credential);
+    for (const release of batch) {
+      const name = release?.tag_name;
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      releases.push({ name, publishedAt: normalizeDate(release.published_at || release.created_at) });
+    }
+    if (!batch.length || !hasNext) break;
+    page += 1;
+  }
+
+  return releases;
+}
+
+// GitHub releases 按创建时间倒序返回，活跃仓库很容易超过一页——
+// kubernetes/kubernetes 实测有 9 页（约 850 条）。只取 page=1 会让回退数据
+// 静默截断在最近 100 条，用户查历史版本时看到的是不完整的列表却毫不知情，
+// 因此这里跟随 Link 头翻完全部页，并用 GITHUB_RELEASE_MAX_PAGES 兜底防死循环。
+async function getGitHubReleases(sourceRepository) {
   const repository = normalizeGitHubRepository(sourceRepository);
   if (!repository) return [];
-  const cacheKey = `github-release-tags:${repository.toLowerCase()}`;
+  const cacheKey = `github-releases:${repository.toLowerCase()}`;
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
   const credential = await getCredentialForAuth('ghcr');
-  const url = `https://api.github.com/repos/${repository}/releases?per_page=100&page=1`;
   try {
-    const response = await axios.get(url, getGitHubApiRequestOptions(credential));
-    const tags = Array.isArray(response.data)
-      ? response.data.map(release => release?.tag_name).filter(Boolean)
-      : [];
-    return setCache(cacheKey, tags, GITHUB_PACKAGE_CACHE_TTL_MS);
+    const releases = await fetchAllGitHubReleases(repository, credential);
+    return setCache(cacheKey, releases, GITHUB_PACKAGE_CACHE_TTL_MS);
   } catch (error) {
     // 失效 PAT 不应阻断 GHCR 自身的标签读取；匿名 release API 仍可能可用。
     if (error.response?.status === 401 && credential?.password) {
       try {
-        const response = await axios.get(url, getGitHubApiRequestOptions(null));
-        const tags = Array.isArray(response.data)
-          ? response.data.map(release => release?.tag_name).filter(Boolean)
-          : [];
-        return setCache(cacheKey, tags, 60 * 1000);
+        const releases = await fetchAllGitHubReleases(repository, null);
+        return setCache(cacheKey, releases, 60 * 1000);
       } catch (anonymousError) {
         logger.warn(`读取 GitHub 仓库 ${repository} releases 失败: ${anonymousError.message}`);
       }
@@ -1414,6 +1501,11 @@ async function getGitHubReleaseTagNames(sourceRepository) {
     }
     return setCache(cacheKey, [], 60 * 1000);
   }
+}
+
+async function getGitHubReleaseTagNames(sourceRepository) {
+  const releases = await getGitHubReleases(sourceRepository);
+  return releases.map(release => release.name);
 }
 
 function mergeTagNames(registryNames, releaseNames) {
@@ -1909,9 +2001,29 @@ async function getOCITags(registryId, imageName, page = 1, pageSize = 100, sourc
     const start = (page - 1) * pageSize;
     const slice = tags.slice(start, start + pageSize);
 
+    // getOCITagMetadata 会吞掉单个 tag 的错误并返回空元数据，所以必须在这里
+    // 显式统计。否则「tags/list 命中缓存、manifest/blob 链路故障」——这是网络
+    // 抖动最常见的形态——会让页面显示一整屏空列，既不报错也不回退。
+    const failedCount = slice.filter(tag => tag && tag.metadataFailed).length;
+    if (slice.length && failedCount === slice.length && registryId === 'k8s') {
+      const fallback = await tryK8sReleaseFallback(
+        normalized,
+        page,
+        pageSize,
+        '当前页元数据全部读取失败'
+      );
+      if (fallback) {
+        logger.warn(`K8s 标签元数据读取失败，回退到 GitHub releases: ${normalized}`);
+        return fallback;
+      }
+    }
+
     return {
       registry: registryId,
       imageName: normalized,
+      source: REGISTRY_TAG_SOURCE,
+      degraded: failedCount > 0,
+      metadataFailed: failedCount,
       count: tags.length,
       results: slice.map(tag => ({
         name: tag.name,
@@ -1927,9 +2039,13 @@ async function getOCITags(registryId, imageName, page = 1, pageSize = 100, sourc
     logger.error(`获取 ${registryId} 标签失败: ${error.message}`);
     const registryErrorCode = error.response?.data?.errors?.[0]?.code;
     if (error.response?.status === 404 && registryErrorCode === 'NAME_UNKNOWN') {
+      // NAME_UNKNOWN 是所有 OCI registry 通用的错误码，提示文案必须按平台区分，
+      // 否则查 k8s 镜像时会看到一段讲 GHCR 命名规则的说明。
+      const hint = registryId === 'ghcr'
+        ? 'GitHub 仓库名与 GHCR 容器包名可能不同，请使用实际包名（例如 immich-app/immich-server）。'
+        : '请检查镜像路径是否完整（例如 namespace/repository 或 registry.k8s.io 下的实际路径）。';
       const notFound = new Error(
-        `${REGISTRY_CONFIGS[registryId].name} 中不存在容器镜像「${normalized}」。` +
-        'GitHub 仓库名与 GHCR 容器包名可能不同，请使用实际包名（例如 immich-app/immich-server）。'
+        `${REGISTRY_CONFIGS[registryId].name} 中不存在容器镜像「${normalized}」。` + hint
       );
       notFound.statusCode = 404;
       notFound.cause = error;
@@ -1937,7 +2053,12 @@ async function getOCITags(registryId, imageName, page = 1, pageSize = 100, sourc
     }
 
     if (registryId === 'k8s') {
-      const fallback = await getK8sReleaseFallbackTags(normalized, page, pageSize);
+      const fallback = await tryK8sReleaseFallback(
+        normalized,
+        page,
+        pageSize,
+        `registry 请求失败: ${error.message}`
+      );
       if (fallback) {
         logger.warn(`K8s 标签请求失败，回退到 GitHub releases: ${error.message}`);
         return fallback;

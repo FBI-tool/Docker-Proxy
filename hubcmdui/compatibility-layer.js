@@ -316,7 +316,7 @@ module.exports = function(app) {
   });
   
   // 测试通知接口
-  app.post('/api/test-notification', async (req, res) => {
+  app.post('/api/test-notification', requireLogin, async (req, res) => {
     try {
       logger.info('兼容层处理测试通知请求');
       
@@ -550,7 +550,7 @@ module.exports = function(app) {
   });
   
   // 兼容config API
-  app.get('/api/config', async (req, res) => {
+  app.get('/api/config', requireLogin, async (req, res) => {
     try {
       logger.info('兼容层处理配置请求');
       const fs = require('fs').promises;
@@ -605,7 +605,7 @@ module.exports = function(app) {
   });
   
   // 保存配置API
-  app.post('/api/config', async (req, res) => {
+  app.post('/api/config', requireLogin, async (req, res) => {
     try {
       logger.info('兼容层处理保存配置请求');
       const fs = require('fs').promises;

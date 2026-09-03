@@ -388,6 +388,8 @@ export default {
     "loadTagsFailed": "加载镜像标签失败",
     "errorHint": "请检查镜像名称、Registry 访问凭证或网络连接后重试。",
     "reload": "重新加载",
+    "tagsDegradedFallback": "Registry 当前不可达。下列标签来自 GitHub release 版本号，不保证都存在对应的可拉取镜像。",
+    "tagsDegradedPartial": "本页有 {count} 个标签的元数据（摘要 / 大小 / 更新时间）读取失败，标签列表本身是完整的。",
     "searchTagPlaceholder": "搜索 TAG...",
     "foundTagsPrefix": "共找到 ",
     "tagsUnit": " 个标签",

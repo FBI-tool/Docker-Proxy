@@ -23,12 +23,40 @@ import (
 // keeps the existing password instead of overwriting it.
 const adminPasswordSentinel = "********"
 
+// resolveConfigPath picks the YAML config to use:
+//   1. explicit positional argument, e.g. `./go-proxy /etc/dqz-proxy/config.yaml`
+//   2. files auto-discovered in the working directory, in priority order:
+//      config.local.yaml (typical dev override) > config.yaml (committed default) > config.example.yaml
+//
+// When the operator is sitting in the repo with no flag, they'd otherwise see
+// "usage: registry-proxy <config.yaml>" and exit — which looks like a crash
+// rather than the documented requirement of pointing at a YAML. Picking up the
+// first existing file matches what `make run` / `go run .` users actually want.
+func resolveConfigPath(args []string) (string, error) {
+	if len(args) >= 1 {
+		p := args[0]
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+		return "", fmt.Errorf("指定的配置文件 %q 不存在", p)
+	}
+	candidates := []string{"config.local.yaml", "config.yaml", "config.example.yaml"}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			log.Printf("未指定配置文件，自动使用当前目录下的 %s", c)
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("当前目录下未找到 config.yaml / config.local.yaml / config.example.yaml，请显式指定配置路径")
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: registry-proxy <config.yaml>")
+	configPath, err := resolveConfigPath(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		fmt.Fprintln(os.Stderr, "usage: registry-proxy [config.yaml]")
 		os.Exit(2)
 	}
-	configPath := os.Args[1]
 	cfg, err := loadConfig(configPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)

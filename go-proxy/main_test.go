@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testConfigWithSecret() *Config {
@@ -127,5 +128,122 @@ func TestCredentialSyncPayloadCannotBeDecryptedWithAnotherToken(t *testing.T) {
 	_, err = gcm.Open(nil, sealed[:gcm.NonceSize()], sealed[gcm.NonceSize():], nil)
 	if err == nil {
 		t.Fatal("payload must not decrypt with a different admin token")
+	}
+}
+
+// TestHostOnly exercises every documented branch of hostOnly. The previous
+// `strings.SplitN(h, ":", 2)[0]` returned "[2001" for "[2001:db8::1]:5000"
+// and "" for "::1", which is what this table guards against regressing.
+func TestHostOnly(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		// Plain hostname / domain.
+		{"example.com", "example.com"},
+		{"example.com:5000", "example.com"},
+		{"REGISTRY.DOCKER.IO:443", "REGISTRY.DOCKER.IO"}, // lower-casing happens in resolveRegistry
+		// Bare IPv4.
+		{"127.0.0.1", "127.0.0.1"},
+		{"127.0.0.1:8080", "127.0.0.1"},
+		// Bracketed IPv6 literal WITH port — the regression case.
+		{"[2001:db8::1]:5000", "2001:db8::1"},
+		{"[::1]:8080", "::1"},
+		// Bracketed IPv6 literal WITHOUT port (some upstream proxies emit this).
+		{"[::1]", "::1"},
+		{"[2001:db8::1]", "2001:db8::1"},
+		// Edge cases.
+		{"", ""},
+		{":", ""}, // empty host, empty port
+	}
+	for _, tc := range cases {
+		got := hostOnly(tc.in)
+		if got != tc.want {
+			t.Errorf("hostOnly(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestResolveRegistryIPv6Routes correctly verifies the integration: a request
+// bracketed with an IPv6 literal must still match the registry whose Hosts
+// entry is the bare IPv6 address.
+func TestResolveRegistryIPv6Routes(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		Default: "v6",
+		Registries: []RegistryConfig{{
+			Name:     "v6",
+			Hosts:    []string{"2001:db8::1", "registry.example.com"},
+			Upstream: "https://registry.example.com",
+			Auth:     AuthConfig{Type: AuthAnonymous},
+			Enabled:  &enabled,
+		}},
+	}
+	p := NewProxy(cfg)
+	defer p.stopStatsJanitor()
+
+	// Bracketed form: this is what curl / docker actually emit on `[ipv6]:port` proxies.
+	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
+	req.Host = "[2001:db8::1]:5000"
+	if reg := p.resolveRegistry(req); reg == nil || reg.Name != "v6" {
+		t.Errorf("expected v6 registry for bracketed IPv6 Host, got %+v", reg)
+	}
+	// X-Forwarded-Host from a reverse proxy that already stripped brackets.
+	req2 := httptest.NewRequest(http.MethodGet, "/v2/", nil)
+	req2.Host = "localhost:5000"
+	req2.Header.Set("X-Forwarded-Host", "[2001:db8::1]:5000")
+	if reg := p.resolveRegistry(req2); reg == nil || reg.Name != "v6" {
+		t.Errorf("expected v6 registry for X-Forwarded-Host (brackets), got %+v", reg)
+	}
+	// IPv4 sanity-check continues to work.
+	req3 := httptest.NewRequest(http.MethodGet, "/v2/", nil)
+	req3.Host = "registry.example.com:443"
+	if reg := p.resolveRegistry(req3); reg == nil || reg.Name != "v6" {
+		t.Errorf("expected v6 registry for domain Host, got %+v", reg)
+	}
+}
+
+// TestStatsJanitorEvictsIdleRecords verifies the cleanup loop is wired up:
+// entries idle longer than statsIdleTimeout must be removed by cleanupIdleStats.
+func TestStatsJanitorEvictsIdleRecords(t *testing.T) {
+	p := &Proxy{
+		clientStats:         make(map[string]*clientStat),
+		statsIdleTimeout:    100 * time.Millisecond,
+		statsSweepInterval:  time.Hour, // we drive cleanup manually; the ticker
+		// is intentionally huge so it cannot fire during the test.
+	}
+	// Seed three entries with controlled LastSeen timestamps.
+	p.clientStats["fresh-1"] = &clientStat{BytesTotal: 1, Requests: 1, LastSeen: time.Now()}
+	p.clientStats["fresh-2"] = &clientStat{BytesTotal: 1, Requests: 1, LastSeen: time.Now()}
+	p.clientStats["stale"] = &clientStat{BytesTotal: 1, Requests: 1, LastSeen: time.Now().Add(-time.Hour)}
+	// Touch fresh-2 after a tiny wait so it remains newer than the cutoff.
+	time.Sleep(20 * time.Millisecond)
+	p.clientStats["fresh-2"].LastSeen = time.Now()
+
+	// Drive a single cleanup pass.
+	p.cleanupIdleStats()
+
+	if _, ok := p.clientStats["fresh-1"]; !ok {
+		t.Error("fresh-1 should have survived cleanup (lastSeen within window)")
+	}
+	if _, ok := p.clientStats["fresh-2"]; !ok {
+		t.Error("fresh-2 should have survived cleanup (recent touch)")
+	}
+	if _, ok := p.clientStats["stale"]; ok {
+		t.Error("stale entry should have been evicted by cleanupIdleStats")
+	}
+}
+
+// TestApplyStatsConfigClampsBadRatios ensures we never end up in a state where
+// the janitor sweep interval is >= idle timeout; otherwise the very first
+// sweep deletes everything and the map never recovers.
+func TestApplyStatsConfigClampsBadRatios(t *testing.T) {
+	p := &Proxy{}
+	cfg := &Config{Server: ServerConfig{
+		StatsIdleTimeout:     60,   // 60s
+		StatsJanitorInterval: 6000, // 100min, way bigger than idle
+	}}
+	p.applyStatsConfig(cfg)
+	if p.statsSweepInterval >= p.statsIdleTimeout {
+		t.Fatalf("sweep interval %s must be strictly smaller than idle %s", p.statsSweepInterval, p.statsIdleTimeout)
 	}
 }

@@ -138,6 +138,50 @@ The config file is mounted on the host at `./config/go-proxy/` (inside the conta
 
 ---
 
+## 🛠 Local Development
+
+For developers participating in secondary development, debugging, or building images locally. The two sub-projects (`go-proxy/` and `hubcmdui/`) are **independent** and can be run separately.
+
+### go-proxy (Go backend)
+
+**Prerequisite**: Go ≥ 1.23 (explicitly required in `go-proxy/go.mod` as 1.23.0)
+
+```bash
+cd go-proxy
+# Method A: Auto-discovers config.local.yaml > config.yaml > config.example.yaml in the current directory
+go run .
+# Method B: Pass an explicit config file
+go run . ./config.local.yaml
+```
+
+After startup:
+
+| Port | Purpose | Exposure |
+| --- | --- | --- |
+| `:5000` | OCI Registry reverse proxy (`/v2/` main entry) | Public / behind reverse proxy |
+| `:5001` | Admin API (`/-/healthz`, `/-/config`, `/-/reload`, `/-/stats`, `/-/credentials`) | **Internal only** |
+
+> ⚠️ **About `GO_PROXY_ADMIN_TOKEN`**: The admin API uses independent admin token authentication with **strict startup validation** — placeholder tokens (`change-me` / `admin` / empty string, etc.) or length < 16 will **directly refuse to start**. For local development, at minimum set a 16+ character random value:
+>
+> ```bash
+> export GO_PROXY_ADMIN_TOKEN="$(openssl rand -hex 16)"
+> ```
+
+### hubcmdui (Web UI)
+
+**Prerequisite**: Node.js ≥ 18 (20 LTS recommended)
+
+```bash
+cd hubcmdui
+npm install
+# Start dev server
+npm run dev
+```
+
+Service listens on `:3000` by default; admin entry at `http://localhost:3000/admin`; default account `root / admin@123` (**forced password change on first login**)
+
+---
+
 ## 💌 Promotion
 
 <table>

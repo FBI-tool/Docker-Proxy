@@ -14,6 +14,7 @@ const { downloadImages } = require('./download-images');
 const { gracefulShutdown } = require('./cleanup');
 const os = require('os');
 const { requireLogin } = require('./middleware/auth');
+const { requireFreshPassword } = require('./middleware/auth');
 const compatibilityLayer = require('./compatibility-layer');
 const { initializeDatabase } = require('./scripts/init-database');
 const database = require('./database/database');
@@ -123,6 +124,12 @@ registerRoutes(app);
 // 提供兼容层以确保旧接口继续工作
 require('./compatibility-layer')(app);
 
+// 默认密码守卫：登录时若仍使用出厂默认密码，会在 session.passwordIsDefault 中写入。
+// 此处全局拦截 /api/*，强制只允许改密、改用户名、登出、check-session 等特定接口，
+// 其余 API 一律 403 NEED_CHANGE_PASSWORD，迫使前端弹出强制改密弹窗。
+// 未登录会话直接放行，由各路由自身的 requireLogin 决定是否拒绝。
+app.use('/api', (req, res, next) => requireFreshPassword(req, res, next));
+
 // 页面路由：统一返回 Vue 构建产物（web/dist/index.html）。
 // 旧的 jQuery 前端（web/index.html / web/admin.html / web/docs.html）已删除，
 // 未构建时不再回退到任何旧页面，而是返回 503 提示，由运维执行 `npm run build` 生成 web/dist。
@@ -173,6 +180,18 @@ app.use((err, req, res, next) => {
 
 // 启动服务器
 const PORT = process.env.PORT || 3000;
+
+// 启动期对 GO_PROXY_ADMIN_TOKEN 做硬校验：缺失、占位符、过短均直接抛错，
+// 防止管理端口裸露。失败时由 uncaughtException 处理器在 3s 后退出，
+// 留出窗口便于运维看到致命日志。
+try {
+  require('./services/goProxyService').validateAdminTokenAtStartup();
+} catch (adminTokenErr) {
+  logger.fatal('启动期 GO_PROXY_ADMIN_TOKEN 校验失败：', adminTokenErr.message);
+  // 不静默继续运行：管理端口没有 token 等于裸奔，直接终止进程。
+  setTimeout(() => process.exit(1), 1500);
+  throw adminTokenErr;
+}
 
 async function startServer() {
   server.listen(PORT, async () => {

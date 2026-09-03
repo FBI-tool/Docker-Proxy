@@ -5,7 +5,27 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs').promises;
 const logger = require('../logger');
+/**
+ * 账户安全策略库（CommonJS）
+ * - 只读：默认用户名 / 默认密码 / 弱口令字典 / 常见用户名 字典 / 保留用户名 字典
+ * - 单一数据源：config/security-policy.json
+ */
 const bcrypt = require('bcrypt');
+const policy = require('../config/security-policy.json');
+
+const DEFAULT_USERNAME = policy.defaultUsername;
+const DEFAULT_PASSWORD = policy.defaultPassword;
+
+// 数据库层关注：创建默认管理员时务必使用策略库内的密码，避免出现
+// 硬编码字符串与 JSON 不一致的"双数据源"问题。任何新增位置
+// 都应从这里或 lib/security.js 读取，不应再写明文。
+function getDefaultCredentials() {
+  return {
+    username: DEFAULT_USERNAME,
+    // 仍然进行 bcrypt 哈希，与历史库兼容；值为策略文件中的明文
+    password: DEFAULT_PASSWORD
+  };
+}
 
 // 数据库文件路径
 const DB_PATH = path.join(__dirname, '../data/app.db');
@@ -221,18 +241,20 @@ class Database {
 
   /**
    * 初始化默认管理员用户
+   * 注意：默认密码统一从 config/security-policy.json 读取，禁止再硬编码明文。
    */
   async createDefaultAdmin() {
     try {
-      const adminUser = await this.get('SELECT id FROM users WHERE username = ?', ['root']);
-      
+      const creds = getDefaultCredentials();
+      const adminUser = await this.get('SELECT id FROM users WHERE username = ?', [creds.username]);
+
       if (!adminUser) {
-        const hashedPassword = await bcrypt.hash('admin@123', 10);
+        const hashedPassword = await bcrypt.hash(creds.password, 10);
         await this.run(
           'INSERT INTO users (username, password, created_at, login_count, last_login) VALUES (?, ?, ?, ?, ?)',
-          ['root', hashedPassword, new Date().toISOString(), 0, null]
+          [creds.username, hashedPassword, new Date().toISOString(), 0, null]
         );
-        logger.info('默认管理员用户创建成功，请及时修改默认密码');
+        logger.warn(`默认管理员用户 ${creds.username} 已创建，密码由 config/security-policy.json 控制，部署后请立即修改`);
       }
     } catch (error) {
       logger.error('创建默认管理员用户失败:', error);

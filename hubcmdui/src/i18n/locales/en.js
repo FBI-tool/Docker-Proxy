@@ -388,6 +388,8 @@ export default {
     "loadTagsFailed": "Failed to load image tags",
     "errorHint": "Please check the image name, Registry credentials, or network connection and try again.",
     "reload": "Reload",
+    "tagsDegradedFallback": "The registry is unreachable. The tags below come from GitHub release versions and are not guaranteed to exist as pullable image tags.",
+    "tagsDegradedPartial": "Metadata (digest / size / updated) could not be read for {count} tag(s) on this page. The tag list itself is intact.",
     "searchTagPlaceholder": "Search TAG...",
     "foundTagsPrefix": "Found ",
     "tagsUnit": " tags",

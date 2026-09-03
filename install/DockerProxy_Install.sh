@@ -1402,7 +1402,7 @@ Wants=network-online.target
 [Service]
 Type=notify
 ExecStart=/usr/bin/dockerd
-ExecReload=/bin/kill -s HUP 
+ExecReload=/bin/kill -s HUP $MAINPID
 LimitNOFILE=infinity
 LimitNPROC=infinity
 LimitCORE=infinity
@@ -1990,12 +1990,22 @@ PUBLIC_IP=$(curl -s https://ifconfig.me)
 ALL_IPS=$(hostname -I)
 INTERNAL_IP=$(echo "$ALL_IPS" | awk '$1!="127.0.0.1" && $1!="::1" && $1!="docker0" {print $1}')
 
+# 管理面板默认账号（数据源：hubcmdui/config/security-policy.json 中的
+# defaultUsername / defaultPassword，必须与之一致；若改了那个文件请同步改这里）
+# 首次登录会被中间件 requireFreshPassword 强制改密，无需担心明文落盘的安全风险
+DEFAULT_ADMIN_USER="root"
+DEFAULT_ADMIN_PASS="admin@123"
+
 echo
 INFO "=================感谢您的耐心等待，安装已经完成=================="
 INFO
 INFO "请用浏览器访问管理面板(可在网页上增删改代理、热重载): "
 INFO "公网访问地址: ${UNDERLINE}http://$PUBLIC_IP:30080/admin${RESET}"
 INFO "内网访问地址: ${UNDERLINE}http://$INTERNAL_IP:30080/admin${RESET}"
+INFO
+INFO "管理面板默认账号${LIGHT_RED}(首次登录会强制改密)${RESET}: "
+INFO "  用户名: ${LIGHT_CYAN}${DEFAULT_ADMIN_USER}${RESET}"
+INFO "  密  码: ${LIGHT_CYAN}${DEFAULT_ADMIN_PASS}${RESET}"
 INFO
 INFO "Docker 镜像加速(直连, 按 Host 头路由 Docker Hub/GHCR/Quay/K8s/MCR/...): "
 INFO "公网地址: ${UNDERLINE}http://$PUBLIC_IP:50000${RESET}"

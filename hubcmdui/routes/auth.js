@@ -37,6 +37,9 @@ router.post('/login', async (req, res) => {
     await new Promise((resolve, reject) => {
       req.session.regenerate(err => err ? reject(err) : resolve());
     });
+    // 在 session 中标记本次登录是否仍使用出厂默认密码；
+    // 中间件 requireFreshPassword 会基于这一标志拦截除改密/登出以外的所有 API。
+    req.session.passwordIsDefault = isDefaultPassword(password);
     req.session.user = { username: user.username };
 
     // 确保服务器启动时间已设置

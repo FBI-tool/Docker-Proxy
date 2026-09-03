@@ -388,6 +388,8 @@ export default {
     "loadTagsFailed": "載入映像標籤失敗",
     "errorHint": "請檢查映像名稱、Registry 存取憑證或網路連線後重試。",
     "reload": "重新載入",
+    "tagsDegradedFallback": "Registry 目前無法連線。下列標籤來自 GitHub release 版本號，不保證都存在對應可拉取的映像。",
+    "tagsDegradedPartial": "本頁有 {count} 個標籤的中繼資料（摘要 / 大小 / 更新時間）讀取失敗，標籤清單本身是完整的。",
     "searchTagPlaceholder": "搜尋 TAG...",
     "foundTagsPrefix": "共找到 ",
     "tagsUnit": " 個標籤",

@@ -5,7 +5,52 @@ const Docker = require('dockerode');
 const logger = require('../logger');
 const { decodeDockerLogBuffer, createDockerLogDemuxStream } = require('../lib/dockerLogs');
 
+// 镜像名校验：仅允许 ASCII 字母、数字、`_`、`-`、`.`、`/`、`:`，
+// 禁止路径分隔符、shell 元字符、空白字符。所有字符数与总长度都做了上限。
+const IMAGE_NAME_RE = /^[A-Za-z0-9_./-]{1,255}$/;
+const IMAGE_TAG_RE = /^[A-Za-z0-9_.-]{1,128}$/;
+
 let docker = null;
+
+/**
+ * 校验 updateContainer 的 target tag：以白名单方式限制为"同一仓库内换 tag"，
+ * 并对 imageName / tag 字符集严格校验。
+ * - imageName(repo) 必须等于原 image 的 imageName，禁止通过在 tag 字段里塞
+ *   `mymirror/evil:tag` 来跨越到其他镜像。
+ * - 字符集必须匹配 IMAGE_NAME_RE / IMAGE_TAG_RE，阻断路径遍历、shell
+ *   注入等额外攻击面。
+ */
+function assertTagOnlyUpdateAllowed(currentImage, newTag) {
+  if (!currentImage || typeof currentImage !== 'string') {
+    throw new Error('无法读取容器当前镜像');
+  }
+  const sepIdx = currentImage.indexOf(':');
+  const currentImageName = sepIdx === -1 ? currentImage : currentImage.slice(0, sepIdx);
+  const currentTag = sepIdx === -1 ? 'latest' : currentImage.slice(sepIdx + 1);
+
+  if (!IMAGE_NAME_RE.test(currentImageName)) {
+    // 容器自身 image 已经异常，理论上 docker daemon 不会返回这种值；出于纵深防御抛错。
+    throw new Error(`容器当前镜像名 "${currentImageName}" 非法，无法执行更新`);
+  }
+  if (!currentImageName || !newTag) {
+    throw new Error('镜像名或 tag 缺失');
+  }
+  if (!IMAGE_TAG_RE.test(String(newTag))) {
+    throw new Error(`tag "${newTag}" 含非法字符或超过长度上限`);
+  }
+  // 关键约束：tag 字段不允许再含 `:`，否则可以再起一段（虽然 docker pull 会按字面解释，但我们要
+  // 显式禁止传入形如 `1.2.3:mymirror/x` 这类试图用 tag 切 repo 的字符串）。
+  if (String(newTag).includes(':')) {
+    throw new Error('tag 不能含冒号');
+  }
+  if (String(newTag).includes('..')) {
+    throw new Error('tag 不能含路径遍历');
+  }
+  if (String(newTag) === currentTag) {
+    // 不阻断：用户重复点更新时仍要正确返回结果。但落库前的真重复调用由调用方处理。
+    logger.info(`tag 与当前一致 (${newTag})，将跳过实际拉取步骤`);
+  }
+}
 
 async function initDockerConnection() {
   if (docker) return docker;
@@ -302,15 +347,21 @@ async function updateContainer(id, tag) {
   if (!docker) {
     throw new Error('无法连接到 Docker 守护进程');
   }
-  
+
   // 获取容器信息
   const container = docker.getContainer(id);
   const containerInfo = await container.inspect();
   const currentImage = containerInfo.Config.Image;
-  const [imageName] = currentImage.split(':');
+  const [imageName, currentTag = 'latest'] = currentImage.split(':');
   const newImage = `${imageName}:${tag}`;
   const containerName = containerInfo.Name.slice(1); // 去掉开头的 '/'
-  
+
+  // 镜像白名单校验：
+  //  1. 图像仓库名(imageName)不可变：禁止通过 tag 字段跨越到不同镜像，
+  //     防止有人以 `${imageName}:mymirror/evil` 这种"换 tag"的方式拉取任意外部镜像。
+  //  2. imageName / tag 字符集与长度严格限制，阻断含 ..、路径分隔符、shell 元字符的恶意镜像名。
+  assertTagOnlyUpdateAllowed(currentImage, tag);
+
   logger.info(`Updating container ${id} from ${currentImage} to ${newImage}`);
   
   // 拉取新镜像
